@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   title: My API
-  description: API for user registration, verification, login, profile management, and pet information
+  description: API for user registration, verification, login, profile management, pet information, and WebSocket events.
   version: 1.0.0
 servers:
   - url: http://localhost:8080
@@ -29,6 +29,7 @@ paths:
                     type: string
                   user_id:
                     type: string
+                    format: uuid
         '400':
           description: Invalid request
 
@@ -57,7 +58,7 @@ paths:
 
   /login:
     post:
-      summary: Login a user
+      summary: Log in a user
       requestBody:
         description: Login data signed by the user
         required: true
@@ -77,6 +78,7 @@ paths:
                     type: string
                   user_id:
                     type: string
+                    format: uuid
                   access_token:
                     type: string
                   refresh_token:
@@ -192,122 +194,12 @@ paths:
 
 components:
   schemas:
-    SignedDataRegisterData:
-      type: object
-      properties:
-        data:
-          $ref: '#/components/schemas/RegisterData'
-        signature:
-          type: string
-
-    SignedDataRequestVerificationCodeData:
-      type: object
-      properties:
-        data:
-          $ref: '#/components/schemas/RequestVerificationCodeData'
-        signature:
-          type: string
-
-    SignedDataLoginData:
-      type: object
-      properties:
-        data:
-          $ref: '#/components/schemas/LoginData'
-        signature:
-          type: string
-
-    SignedDataRefreshData:
-      type: object
-      properties:
-        data:
-          $ref: '#/components/schemas/RefreshData'
-        signature:
-          type: string
-
-    SignedDataLogoutData:
-      type: object
-      properties:
-        data:
-          $ref: '#/components/schemas/LogoutData'
-        signature:
-          type: string
-
-    RegisterData:
-      type: object
-      properties:
-        phone_number:
-          type: string
-        public_key:
-          type: string
-        timestamp:
-          type: string
-          format: date-time
-
-    RequestVerificationCodeData:
-      type: object
-      properties:
-        user_id:
-          type: string
-        timestamp:
-          type: string
-          format: date-time
-
-    LoginData:
-      type: object
-      properties:
-        user_id:
-          type: string
-        verification_code:
-          type: string
-        timestamp:
-          type: string
-          format: date-time
-
-    RefreshData:
-      type: object
-      properties:
-        user_id:
-          type: string
-        refresh_token:
-          type: string
-        timestamp:
-          type: string
-          format: date-time
-
-    LogoutData:
-      type: object
-      properties:
-        user_id:
-          type: string
-        refresh_token:
-          type: string
-        timestamp:
-          type: string
-          format: date-time
-
-    UpdateProfileData:
-      type: object
-      properties:
-        first_name:
-          type: string
-        last_name:
-          type: string
-        email:
-          type: string
-        address:
-          type: string
-        profile_image_url:
-          type: string
-        pets:
-          type: array
-          items:
-            $ref: '#/components/schemas/Pet'
-
     User:
       type: object
       properties:
         id:
           type: string
+          format: uuid
         phone_number:
           type: string
         public_key:
@@ -316,14 +208,19 @@ components:
           type: string
         first_name:
           type: string
+          nullable: true
         last_name:
           type: string
+          nullable: true
         email:
           type: string
+          nullable: true
         address:
           type: string
+          nullable: true
         profile_image_url:
           type: string
+          nullable: true
         verified:
           type: boolean
         created_at:
@@ -338,6 +235,10 @@ components:
       properties:
         id:
           type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
         name:
           type: string
         breed:
@@ -349,4 +250,194 @@ components:
           format: date-time
         pet_image_url:
           type: string
+          nullable: true
+
+    RefreshToken:
+      type: object
+      properties:
+        token:
+          type: string
+        user_id:
+          type: string
+          format: uuid
+        issued_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        is_revoked:
+          type: boolean
+        last_used_at:
+          type: string
+          format: date-time
+          nullable: true
+        user_agent:
+          type: string
+          nullable: true
+
+    SignedDataRegisterData:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/RegisterData'
+        signature:
+          type: string
+
+    RegisterData:
+      type: object
+      properties:
+        phone_number:
+          type: string
+        public_key:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    SignedDataRequestVerificationCodeData:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/RequestVerificationCodeData'
+        signature:
+          type: string
+
+    RequestVerificationCodeData:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        timestamp:
+          type: string
+          format: date-time
+
+    SignedDataLoginData:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/LoginData'
+        signature:
+          type: string
+
+    LoginData:
+      type: object
+      properties:
+        verification_code:
+          type: string
+        user_id:
+          type: string
+          format: uuid
+        timestamp:
+          type: string
+          format: date-time
+
+    SignedDataRefreshData:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/RefreshData'
+        signature:
+          type: string
+
+    RefreshData:
+      type: object
+      properties:
+        refresh_token:
+          type: string
+        user_id:
+          type: string
+          format: uuid
+        timestamp:
+          type: string
+          format: date-time
+
+    SignedDataLogoutData:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/LogoutData'
+        signature:
+          type: string
+
+    LogoutData:
+      type: object
+      properties:
+        refresh_token:
+          type: string
+        user_id:
+          type: string
+          format: uuid
+        timestamp:
+          type: string
+          format: date-time
+
+    UpdateProfileData:
+      type: object
+      properties:
+        first_name:
+          type: string
+          nullable: true
+        last_name:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        address:
+          type: string
+          nullable: true
+        profile_image_url:
+          type: string
+          nullable: true
+        pets:
+          type: array
+          items:
+            $ref: '#/components/schemas/PetData'
+
+    PetData:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          nullable: true
+        name:
+          type: string
+          nullable: true
+        breed:
+          type: string
+          nullable: true
+        sex:
+          type: string
+          nullable: true
+        birthday:
+          type: string
+          format: date-time
+          nullable: true
+        pet_image_url:
+          type: string
+          nullable: true
+
+    Conversation:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        providers:
+          type: array
+          items:
+            type: string
+            format: uuid
+        client:
+          type: string
+          format: uuid
+        pet:
+          type: string
+          format: uuid
+        last_message:
+          type
 
