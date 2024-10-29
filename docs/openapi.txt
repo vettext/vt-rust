@@ -1,0 +1,352 @@
+openapi: 3.0.0
+info:
+  title: My API
+  description: API for user registration, verification, login, profile management, and pet information
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+
+paths:
+  /register:
+    post:
+      summary: Register a new user
+      requestBody:
+        description: Registration data signed by the user
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignedDataRegisterData'
+      responses:
+        '200':
+          description: Registration successful, verification code sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  user_id:
+                    type: string
+        '400':
+          description: Invalid request
+
+  /request-verification-code:
+    post:
+      summary: Request a verification code
+      requestBody:
+        description: Request verification code data signed by the user
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignedDataRequestVerificationCodeData'
+      responses:
+        '200':
+          description: Verification code sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        '400':
+          description: Invalid request
+
+  /login:
+    post:
+      summary: Login a user
+      requestBody:
+        description: Login data signed by the user
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignedDataLoginData'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  user_id:
+                    type: string
+                  access_token:
+                    type: string
+                  refresh_token:
+                    type: string
+        '400':
+          description: Invalid request
+
+  /refresh:
+    post:
+      summary: Refresh the access token
+      requestBody:
+        description: Refresh data signed by the user
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignedDataRefreshData'
+      responses:
+        '200':
+          description: Token refreshed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  access_token:
+                    type: string
+        '400':
+          description: Invalid request
+
+  /logout:
+    post:
+      summary: Log out a user
+      requestBody:
+        description: Logout data signed by the user
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignedDataLogoutData'
+      responses:
+        '200':
+          description: Logged out successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        '400':
+          description: Invalid request
+
+  /profiles:
+    get:
+      summary: Get user profiles
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bearer token
+        - name: user_ids
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Comma-separated list of user UUIDs
+      responses:
+        '200':
+          description: Profiles retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+        '401':
+          description: Unauthorized request
+
+  /profile:
+    post:
+      summary: Update user profile
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bearer token
+      requestBody:
+        description: Profile update data
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileData'
+      responses:
+        '200':
+          description: Profile updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        '401':
+          description: Unauthorized request
+
+components:
+  schemas:
+    SignedDataRegisterData:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/RegisterData'
+        signature:
+          type: string
+
+    SignedDataRequestVerificationCodeData:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/RequestVerificationCodeData'
+        signature:
+          type: string
+
+    SignedDataLoginData:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/LoginData'
+        signature:
+          type: string
+
+    SignedDataRefreshData:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/RefreshData'
+        signature:
+          type: string
+
+    SignedDataLogoutData:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/LogoutData'
+        signature:
+          type: string
+
+    RegisterData:
+      type: object
+      properties:
+        phone_number:
+          type: string
+        public_key:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    RequestVerificationCodeData:
+      type: object
+      properties:
+        user_id:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    LoginData:
+      type: object
+      properties:
+        user_id:
+          type: string
+        verification_code:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    RefreshData:
+      type: object
+      properties:
+        user_id:
+          type: string
+        refresh_token:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    LogoutData:
+      type: object
+      properties:
+        user_id:
+          type: string
+        refresh_token:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    UpdateProfileData:
+      type: object
+      properties:
+        first_name:
+          type: string
+        last_name:
+          type: string
+        email:
+          type: string
+        address:
+          type: string
+        profile_image_url:
+          type: string
+        pets:
+          type: array
+          items:
+            $ref: '#/components/schemas/Pet'
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        phone_number:
+          type: string
+        public_key:
+          type: string
+        scope:
+          type: string
+        first_name:
+          type: string
+        last_name:
+          type: string
+        email:
+          type: string
+        address:
+          type: string
+        profile_image_url:
+          type: string
+        verified:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Pet:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        breed:
+          type: string
+        sex:
+          type: string
+        birthday:
+          type: string
+          format: date-time
+        pet_image_url:
+          type: string
+
