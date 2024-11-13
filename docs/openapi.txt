@@ -32,6 +32,14 @@ paths:
                     format: uuid
         '400':
           description: Invalid request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Phone number already registered"
 
   /request-verification-code:
     post:
@@ -53,6 +61,9 @@ paths:
                 properties:
                   message:
                     type: string
+                  user_id:
+                    type: string
+                    format: uuid
         '400':
           description: Invalid request
 
@@ -192,6 +203,19 @@ paths:
         '401':
           description: Unauthorized request
 
+  /ws/:
+    get:
+      summary: WebSocket endpoint for real-time communication
+      description: |
+        Establishes a WebSocket connection for real-time messaging and updates.
+        Messages must follow the WsMessage format with event types:
+        - conversations: Get user conversations
+        - message: Send a message
+        - new_conversation: Create a new conversation
+      responses:
+        '101':
+          description: Switching protocols to WebSocket
+
 components:
   schemas:
     User:
@@ -307,9 +331,9 @@ components:
     RequestVerificationCodeData:
       type: object
       properties:
-        user_id:
+        phone_number:
           type: string
-          format: uuid
+          description: Phone number associated with the user
         timestamp:
           type: string
           format: date-time
