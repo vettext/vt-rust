@@ -12,7 +12,7 @@ async fn test_login_endpoint() -> Result<(), Box<dyn std::error::Error>> {
     // Prepare the data payload
     let user_id = Uuid::parse_str("d3259583-8788-48ee-8b04-d8526677b189").unwrap();
     let timestamp = Utc::now().to_rfc3339();
-    let verification_code = "768403";
+    let verification_code = "485758";
 
     // Create the data payload
     let data = json!({

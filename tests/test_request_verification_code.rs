@@ -9,12 +9,12 @@ use testing_utils::{TEST_SIGNING_KEY, to_canonical_json};
 
 #[tokio::test]
 async fn test_request_verification_code_endpoint() -> Result<(), Box<dyn std::error::Error>> {
-    let user_id = Uuid::parse_str("ca93b346-790c-4822-b0d0-2df5cf93d7c7").unwrap();
+    let phone_number = "5038940267";
     let timestamp = Utc::now().to_rfc3339();
     
     // Create the data payload
     let data = json!({
-        "user_id": user_id.to_string(),
+        "phone_number": phone_number,
         "timestamp": timestamp
     });
 
