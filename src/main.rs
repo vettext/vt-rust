@@ -54,7 +54,14 @@ async fn register(
     .fetch_one(&**pool)
     .await {
         Ok(record) => record,
-        Err(e) => return HttpResponse::InternalServerError().body(format!("Failed to insert user: {}", e)),
+        Err(e) => {
+            if e.to_string().contains("users_phone_number_key") {
+                return HttpResponse::BadRequest().json(json!({
+                    "message": "Phone number already registered"
+                }));
+            }
+            return HttpResponse::InternalServerError().body(format!("Failed to insert user: {}", e));
+        }
     };
 
     println!("Generated user_id: {:?}", record.id);
