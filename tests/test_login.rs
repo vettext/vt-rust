@@ -10,9 +10,9 @@ use testing_utils::{TEST_SIGNING_KEY, to_canonical_json};
 #[tokio::test]
 async fn test_login_endpoint() -> Result<(), Box<dyn std::error::Error>> {
     // Prepare the data payload
-    let user_id = Uuid::parse_str("8f1bb84f-09d3-4196-8513-17e25513b2d8").unwrap();
+    let user_id = Uuid::parse_str("d3259583-8788-48ee-8b04-d8526677b189").unwrap();
     let timestamp = Utc::now().to_rfc3339();
-    let verification_code = "316070";
+    let verification_code = "768403";
 
     // Create the data payload
     let data = json!({

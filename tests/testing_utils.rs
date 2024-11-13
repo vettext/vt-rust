@@ -19,6 +19,9 @@ pub static TEST_VERIFYING_KEY: Lazy<VerifyingKey> = Lazy::new(|| TEST_SIGNING_KE
 
 pub fn to_canonical_json(value: &Value) -> String {
     match value {
+        Value::String(s) => {
+            s.clone()
+        }
         Value::Object(map) => {
             let mut btree_map = BTreeMap::new();
             for (k, v) in map {
