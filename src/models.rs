@@ -59,7 +59,7 @@ pub struct RegisterData {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct RequestVerificationCodeData {
-    pub user_id: Uuid,
+    pub phone_number: String,
     pub timestamp: String,
 }
 

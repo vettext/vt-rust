@@ -81,15 +81,15 @@ async fn request_verification_code(
         return HttpResponse::BadRequest().body("Invalid timestamp");
     }
 
-    // Look up the user's public key and phone number by user_id
+    // Look up the user's public key and phone number by phone number
     let user_data = match sqlx::query!(
-        "SELECT public_key, phone_number FROM users WHERE id = $1",
-        &signed_data.data.user_id
+        "SELECT id, public_key FROM users WHERE phone_number = $1",
+        &signed_data.data.phone_number
     )
     .fetch_optional(&**pool)
     .await {
         Ok(Some(record)) => record,
-        Ok(None) => return HttpResponse::NotFound().body(format!("User not found for id: {}", signed_data.data.user_id)),
+        Ok(None) => return HttpResponse::NotFound().body(format!("User not found for phone number: {}", signed_data.data.phone_number)),
         Err(e) => return HttpResponse::InternalServerError().body(format!("Database error: {}", e)),
     };
 
@@ -104,9 +104,10 @@ async fn request_verification_code(
     }
 
     // Send Twilio verification code
-    match send_verification_request(&user_data.phone_number).await {
+    match send_verification_request(&signed_data.data.phone_number).await {
         Ok(_) => HttpResponse::Ok().json(json!({
-            "message": "Verification code sent"
+            "message": "Verification code sent",
+            "user_id": user_data.id
         })),
         Err(e) => HttpResponse::InternalServerError().body(format!("Failed to send verification: {}", e)),
     }
