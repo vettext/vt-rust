@@ -1,7 +1,7 @@
 CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     phone_number VARCHAR(20) NOT NULL UNIQUE,
-    public_key VARCHAR(255) NOT NULL UNIQUE,
+    public_key VARCHAR(255) NOT NULL,
     scope VARCHAR(10) NOT NULL,
     first_name VARCHAR(50),
     last_name VARCHAR(50),

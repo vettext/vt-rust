@@ -66,6 +66,14 @@ async fn register(
 
     println!("Generated user_id: {:?}", record.id);
 
+    // If phone number starts with "000123" then it is a test phone number
+    if signed_data.data.phone_number.starts_with("000123") {
+        return HttpResponse::Ok().json(json!({
+            "message": "Test registration data received and verified. Test verification code is 123456.",
+            "user_id": record.id
+        }));
+    }
+
     // Send Twilio verification code
     match send_verification_request(&signed_data.data.phone_number).await {
         Ok(_) => HttpResponse::Ok().json(json!({
@@ -108,6 +116,14 @@ async fn request_verification_code(
     ) {
         println!("Signature verification failed: {}", e);
         return HttpResponse::BadRequest().body("Invalid signature");
+    }
+
+    // If phone number starts with "000123" then it is a test phone number
+    if signed_data.data.phone_number.starts_with("000123") {
+        return HttpResponse::Ok().json(json!({
+            "message": "Test registration data received and verified. Test verification code is 123456.",
+            "user_id": user_data.id
+        }));
     }
 
     // Send Twilio verification code
@@ -154,16 +170,25 @@ async fn login(
         return HttpResponse::BadRequest().body("Invalid signature");
     }
 
-    // Check Twilio verification code
-    let is_valid = match check_verification_code(&user_data.phone_number, &signed_data.data.verification_code).await {
-        Ok(is_valid) => is_valid,
-        Err(e) => return HttpResponse::InternalServerError().body(format!("Failed to check verification: {}", e)),
-    };
+    // If phone number starts with "000123" then it is a test phone number
+    if user_data.phone_number.starts_with("000123") {
+        if signed_data.data.verification_code != "123456" {
+            return HttpResponse::BadRequest().json(json!({
+                "message": "Invalid verification code"
+            }));
+        }
+    } else {
+        // Check Twilio verification code
+        let is_valid = match check_verification_code(&user_data.phone_number, &signed_data.data.verification_code).await {
+            Ok(is_valid) => is_valid,
+            Err(e) => return HttpResponse::InternalServerError().body(format!("Failed to check verification: {}", e)),
+        };
 
-    if !is_valid {
-        return HttpResponse::BadRequest().json(json!({
-            "message": "Invalid verification code"
-        }));
+        if !is_valid {
+            return HttpResponse::BadRequest().json(json!({
+                "message": "Invalid verification code"
+            }));
+        }
     }
 
     // Update user to verified=true if not already verified

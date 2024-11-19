@@ -12,7 +12,7 @@ async fn test_register_endpoint() -> Result<(), Box<dyn std::error::Error>> {
     // Prepare the data payload
     let public_key = general_purpose::STANDARD.encode(TEST_VERIFYING_KEY.as_bytes());
     let timestamp = Utc::now().to_rfc3339();
-    let phone_number = "5038940267";
+    let phone_number = "0001231985";
 
     // Create the data payload
     let data = json!({
@@ -51,7 +51,7 @@ async fn test_register_endpoint() -> Result<(), Box<dyn std::error::Error>> {
     let response: serde_json::Value = serde_json::from_str(&body)?;
     
     assert!(Uuid::parse_str(response["user_id"].as_str().unwrap()).is_ok(), "Response doesn't contain a valid user_id");
-    assert_eq!(response["message"], "Registration data received and verified. Verification code sent.");
+    assert_eq!(response["message"], "Test registration data received and verified. Test verification code is 123456.");
 
     Ok(())
 }

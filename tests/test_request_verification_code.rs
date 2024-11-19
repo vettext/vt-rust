@@ -9,7 +9,7 @@ use testing_utils::{TEST_SIGNING_KEY, to_canonical_json};
 
 #[tokio::test]
 async fn test_request_verification_code_endpoint() -> Result<(), Box<dyn std::error::Error>> {
-    let phone_number = "5038940267";
+    let phone_number = "0001231985";
     let timestamp = Utc::now().to_rfc3339();
     
     // Create the data payload
