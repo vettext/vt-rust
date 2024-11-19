@@ -10,7 +10,7 @@ use testing_utils::{TEST_SIGNING_KEY, to_canonical_json};
 #[tokio::test]
 async fn test_login_endpoint() -> Result<(), Box<dyn std::error::Error>> {
     // Prepare the data payload
-    let user_id = Uuid::parse_str("2ba60c4f-2bfa-403a-a962-03b7c6fdc491").unwrap();
+    let user_id = Uuid::parse_str("9f8071f7-9b07-4b2f-8db1-5c3e8e803270").unwrap();
     let timestamp = Utc::now().to_rfc3339();
     let verification_code = "123456";
 
@@ -57,6 +57,9 @@ async fn test_login_endpoint() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(response["user_id"], user_id.to_string());
     assert!(response["access_token"].is_string(), "Access token not found in response");
     assert!(response["refresh_token"].is_string(), "Refresh token not found in response");
+    assert!(response["expires_at"].is_number(), "Expiration time not found in response");
+    assert!(response["expires_at"].as_u64().unwrap() > Utc::now().timestamp() as u64, 
+           "Expiration time should be in the future");
 
     Ok(())
 }

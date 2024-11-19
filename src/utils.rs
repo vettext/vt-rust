@@ -93,7 +93,7 @@ impl Claims {
     }
 }
 
-pub fn generate_signed_encrypted_token(user_id: Uuid, user_scope: &str) -> Result<String, Box<dyn std::error::Error>> {
+pub fn generate_signed_encrypted_token(user_id: Uuid, user_scope: &str) -> Result<(String, usize), Box<dyn std::error::Error>> {
     // Load keys from environment variables
     let jwt_private_key_pem_base64 = env::var("JWT_PRIVATE_KEY")
         .map_err(|e| format!("Failed to get JWT_PRIVATE_KEY from env: {}", e))?;
@@ -111,12 +111,15 @@ pub fn generate_signed_encrypted_token(user_id: Uuid, user_scope: &str) -> Resul
     let encryption_key_bytes = general_purpose::STANDARD.decode(&encryption_key_base64)
         .map_err(|e| format!("Failed to base64 decode ENCRYPTION_KEY: {}", e))?;
 
+    // Define expiration time
+    let expiration = (Utc::now() + Duration::days(1)).timestamp() as usize;
+
     // Create the claims
     let claims = Claims {
         sub: user_id.to_string(),
         iss: "VeterinaryText".to_string(),
         aud: "VeterinaryText".to_string(),
-        exp: (Utc::now() + Duration::days(1)).timestamp() as usize,
+        exp: expiration,
         iat: Utc::now().timestamp() as usize,
         scope: user_scope.to_string(),
     };
@@ -134,8 +137,8 @@ pub fn generate_signed_encrypted_token(user_id: Uuid, user_scope: &str) -> Resul
     let ciphertext = cipher.encrypt(nonce, token.as_bytes())
         .map_err(|e| format!("Encryption error: {:?}", e))?;
 
-    // Base64 encode the encrypted token
-    Ok(general_purpose::URL_SAFE_NO_PAD.encode(ciphertext))
+    // Base64 encode the encrypted token and return with expiration
+    Ok((general_purpose::URL_SAFE_NO_PAD.encode(ciphertext), expiration))
 }
 
 pub fn generate_refresh_token() -> String {

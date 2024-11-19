@@ -229,8 +229,8 @@ async fn login(
     }
 
     // Generate access token
-    let access_token = match generate_signed_encrypted_token(signed_data.data.user_id, &user_data.scope) {
-        Ok(token) => token,
+    let (access_token, expiration) = match generate_signed_encrypted_token(signed_data.data.user_id, &user_data.scope) {
+        Ok((token, exp)) => (token, exp),
         Err(e) => return HttpResponse::InternalServerError().body(format!("Failed to generate access token: {}", e)),
     };
 
@@ -238,7 +238,8 @@ async fn login(
         "message": "Login successful",
         "user_id": &signed_data.data.user_id,
         "access_token": access_token,
-        "refresh_token": refresh_token
+        "refresh_token": refresh_token,
+        "expires_at": expiration
     }))
 }
 
@@ -307,14 +308,15 @@ async fn refresh(
     }
 
     // Generate new access token
-    let access_token = match generate_signed_encrypted_token(refresh_token_record.user_id, &user_data.scope) {
-        Ok(token) => token,
+    let (access_token, expiration) = match generate_signed_encrypted_token(refresh_token_record.user_id, &user_data.scope) {
+        Ok((token, exp)) => (token, exp),
         Err(e) => return HttpResponse::InternalServerError().body(format!("Failed to generate access token: {}", e)),
     };
 
     HttpResponse::Ok().json(json!({
         "message": "Token refreshed successfully",
-        "access_token": access_token
+        "access_token": access_token,
+        "expires_at": expiration
     }))
 }
 

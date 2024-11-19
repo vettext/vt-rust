@@ -94,6 +94,9 @@ paths:
                     type: string
                   refresh_token:
                     type: string
+                  expires_at:
+                    type: integer
+                    description: Unix timestamp when the access token expires
         '400':
           description: Invalid request
 
@@ -119,6 +122,9 @@ paths:
                     type: string
                   access_token:
                     type: string
+                  expires_at:
+                    type: integer
+                    description: Unix timestamp when the access token expires
         '400':
           description: Invalid request
 

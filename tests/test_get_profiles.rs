@@ -89,7 +89,7 @@ async fn test_get_profiles_endpoint_as_provider() -> Result<(), Box<dyn std::err
     let client_id = insert_test_user(&pool, "0001231987", "client").await;
 
     // Generate an access token for the provider.
-    let access_token = generate_test_token(provider_id, "provider")
+    let (access_token, _) = generate_test_token(provider_id, "provider")
         .expect("Failed to generate test token");
 
     // Prepare the user_ids query parameter.
@@ -137,7 +137,7 @@ async fn test_get_profiles_endpoint_as_client() -> Result<(), Box<dyn std::error
     let client_id = insert_test_user(&pool, "0001231989", "client").await;
 
     // Generate an access token for the client.
-    let access_token = generate_test_token(client_id, "client")
+    let (access_token, _) = generate_test_token(client_id, "client")
         .expect("Failed to generate test token");
 
     // Prepare the user_ids query parameter.

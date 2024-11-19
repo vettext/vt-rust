@@ -3,13 +3,13 @@ use once_cell::sync::Lazy;
 use std::collections::BTreeMap;
 use serde_json::Value;
 use uuid::Uuid;
-use chrono::{DateTime, Utc, Duration};
+use chrono::{Utc, Duration};
 use std::env;
 use base64::engine::general_purpose;
 use base64::Engine as _;
 use jsonwebtoken::{encode, Header, Algorithm, EncodingKey};
 use aes_gcm::{Aes256Gcm, Key, KeyInit, Nonce};
-use aes_gcm::aead::{Aead, Payload};
+use aes_gcm::aead::{Aead};
 use serde::{Serialize, Deserialize};
 
 pub static TEST_SIGNING_KEY: Lazy<SigningKey> = Lazy::new(|| {
@@ -67,7 +67,7 @@ pub fn to_canonical_json(value: &Value) -> String {
     }
 }
 
-pub fn generate_test_token(user_id: Uuid, user_scope: &str) -> Result<String, Box<dyn std::error::Error>> {
+pub fn generate_test_token(user_id: Uuid, user_scope: &str) -> Result<(String, usize), Box<dyn std::error::Error>> {
     // Load keys from environment variables
     let jwt_private_key_pem_base64 = env::var("JWT_PRIVATE_KEY")
         .map_err(|e| format!("Failed to get JWT_PRIVATE_KEY from env: {}", e))?;
@@ -85,12 +85,15 @@ pub fn generate_test_token(user_id: Uuid, user_scope: &str) -> Result<String, Bo
     let encryption_key_bytes = general_purpose::STANDARD.decode(&encryption_key_base64)
         .map_err(|e| format!("Failed to base64 decode ENCRYPTION_KEY: {}", e))?;
 
+    // Define expiration time
+    let expiration = (Utc::now() + Duration::days(1)).timestamp() as usize;
+
     // Create the claims
     let claims = Claims {
         sub: user_id.to_string(),
         iss: "VeterinaryText".to_string(),
         aud: "VeterinaryText".to_string(),
-        exp: (Utc::now() + Duration::days(1)).timestamp() as usize,
+        exp: expiration,
         iat: Utc::now().timestamp() as usize,
         scope: user_scope.to_string(),
     };
@@ -108,6 +111,6 @@ pub fn generate_test_token(user_id: Uuid, user_scope: &str) -> Result<String, Bo
     let ciphertext = cipher.encrypt(nonce, token.as_bytes())
         .map_err(|e| format!("Encryption error: {:?}", e))?;
 
-    // Base64 encode the encrypted token
-    Ok(general_purpose::URL_SAFE_NO_PAD.encode(ciphertext))
+    // Base64 encode the encrypted token and return with expiration
+    Ok((general_purpose::URL_SAFE_NO_PAD.encode(ciphertext), expiration))
 }
