@@ -1,21 +1,42 @@
 use serde_json::{json, Value};
 use uuid::Uuid;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use base64::engine::general_purpose;
 use base64::Engine as _;
 use reqwest::Client;
 use tokio;
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use std::env;
-
+use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
+use aes_gcm::aead::Aead;
+use dotenv;
 mod testing_utils;
 use testing_utils::{generate_test_token, TEST_VERIFYING_KEY};
 
-use crate::models::{User};
+#[derive(FromRow, Debug, Serialize, Deserialize, Clone)]
+pub struct User {
+    pub id: Uuid,
+    pub phone_number: String,
+    pub public_key: String,
+    pub scope: String,
+    pub first_name: Option<String>,
+    pub last_name: Option<String>,
+    pub email: Option<String>,
+    pub address: Option<String>,
+    pub profile_image_url: Option<String>,
+    pub verified: bool,
+    #[serde(with = "chrono::serde::ts_milliseconds")]
+    pub created_at: DateTime<Utc>,
+    #[serde(with = "chrono::serde::ts_milliseconds")]
+    pub updated_at: DateTime<Utc>,
+}
 
 /// Helper function to initialize the test database connection.
 async fn setup_test_db() -> PgPool {
-    let database_url = env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL must be set");
+    dotenv::dotenv().ok();
+
+    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     PgPoolOptions::new()
         .max_connections(5)
         .connect(&database_url)
@@ -64,11 +85,12 @@ async fn test_get_profiles_endpoint_as_provider() -> Result<(), Box<dyn std::err
     let pool = setup_test_db().await;
 
     // Insert a test provider and a test client.
-    let provider_id = insert_test_user(&pool, "+1234567890", "provider").await;
-    let client_id = insert_test_user(&pool, "+0987654321", "client").await;
+    let provider_id = insert_test_user(&pool, "0001231986", "provider").await;
+    let client_id = insert_test_user(&pool, "0001231987", "client").await;
 
     // Generate an access token for the provider.
-    let access_token = generate_test_token(provider_id, "provider");
+    let access_token = generate_test_token(provider_id, "provider")
+        .expect("Failed to generate test token");
 
     // Prepare the user_ids query parameter.
     let user_ids = format!("{},{}", provider_id, client_id);
@@ -111,11 +133,12 @@ async fn test_get_profiles_endpoint_as_client() -> Result<(), Box<dyn std::error
     let pool = setup_test_db().await;
 
     // Insert a test provider and a test client.
-    let provider_id = insert_test_user(&pool, "+1234567890", "provider").await;
-    let client_id = insert_test_user(&pool, "+0987654321", "client").await;
+    let provider_id = insert_test_user(&pool, "0001231988", "provider").await;
+    let client_id = insert_test_user(&pool, "0001231989", "client").await;
 
     // Generate an access token for the client.
-    let access_token = generate_test_token(client_id, "client");
+    let access_token = generate_test_token(client_id, "client")
+        .expect("Failed to generate test token");
 
     // Prepare the user_ids query parameter.
     let user_ids = format!("{},{}", provider_id, client_id);
