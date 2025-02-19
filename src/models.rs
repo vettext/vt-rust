@@ -149,5 +149,17 @@ pub enum WsEvent {
     NewConversation {
         pet_id: Uuid,
         providers: Option<Vec<Uuid>>,
+    },
+    ConversationHistory {
+        conversation_id: Uuid,
+        page: i32,
+        limit: i32,
     }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ConversationHistoryResponse {
+    pub messages: Vec<Message>,
+    pub total_count: i32,
+    pub has_more: bool,
 }

@@ -6,12 +6,13 @@ use actix_web_actors::ws;
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 use uuid::Uuid;
-use crate::models::{WsMessage, WsEvent};
+use crate::models::{WsMessage, WsEvent, ConversationHistoryResponse};
 use crate::services::conversations::ConversationService;
 use sqlx::PgPool;
 use actix_web::web;
 use actix::fut::wrap_future;
 use chrono::Utc;
+use std::error::Error;
 
 // -----------------------
 // Define Messages
@@ -240,6 +241,32 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
                                     ctx.text("Invalid new conversation data format");
                                 }
                             },
+                            "conversation_history" => {
+                                if let Ok(WsEvent::ConversationHistory { conversation_id, page, limit }) = serde_json::from_value(ws_message.data) {
+                                    let response = handle_ws_event(WsEvent::ConversationHistory { conversation_id, page, limit }, conversation_id).await;
+                                    match response {
+                                        Ok(value) => {
+                                            addr.do_send(BroadcastMessage(WsMessage {
+                                                sender_id: Uuid::nil(),
+                                                event: "conversation_history_response".to_string(),
+                                                data: value,
+                                            }));
+                                        },
+                                        Err(e) => {
+                                            println!("Error handling conversation history: {:?}", e);
+                                            addr.do_send(BroadcastMessage(WsMessage {
+                                                sender_id: Uuid::nil(),
+                                                event: "error".to_string(),
+                                                data: serde_json::json!({
+                                                    "message": format!("Error handling conversation history: {:?}", e)
+                                                }),
+                                            }));
+                                        }
+                                    }
+                                } else {
+                                    ctx.text("Invalid conversation history data format");
+                                }
+                            },
                             _ => {
                                 ctx.text("Unknown event type");
                             }
@@ -293,4 +320,30 @@ pub async fn websocket_route(
         &req,
         stream,
     )
+}
+
+async fn handle_ws_event(event: WsEvent, user_id: Uuid) -> Result<serde_json::Value, Error> {
+    match event {
+        WsEvent::ConversationHistory { conversation_id, page, limit } => {
+            // For now, return dummy data
+            let dummy_messages = (0..limit).map(|i| Message {
+                id: Uuid::new_v4(),
+                conversation_id,
+                content: format!("Test message {}", i),
+                timestamp: Utc::now() - chrono::Duration::hours(i as i64),
+            }).collect();
+
+            let response = ConversationHistoryResponse {
+                messages: dummy_messages,
+                total_count: 100, // Dummy total count
+                has_more: page * limit < 100, // Dummy logic for has_more
+            };
+
+            Ok(serde_json::to_value(response)?)
+        },
+        _ => {
+            // Handle other event types
+            Ok(serde_json::Value::Null)
+        }
+    }
 }
