@@ -30,6 +30,7 @@ use crate::websockets::websocket_route; // Import the WebSocket route handler
 // Google Cloud Storage upload
 use google_cloud_storage::client::{Client, ClientConfig};
 use google_cloud_storage::http::objects::upload::{UploadObjectRequest, UploadType, Media};
+use google_cloud_default::WithAuthExt;
 
 #[post("/register")]
 async fn register(
@@ -794,7 +795,17 @@ async fn upload_image(
         }
     };
 
-    let client = Client::new(client_config);
+    // Apply authentication to the client config
+    let client_config = match client_config.with_auth().await {
+        Ok(config) => config,
+        Err(e) => {
+            eprintln!("Error setting up GCS authentication: {}", e);
+            return HttpResponse::InternalServerError().body(format!("Failed to authenticate with Google Cloud Storage: {}", e));
+        }
+    };
+
+    // Now create the client with the authenticated config
+    let gcs_client = Client::new(client_config);
 
     // Get bucket name from environment variable
     let bucket_name = std::env::var("GCS_BUCKET_NAME").unwrap_or_else(|_| "vet-text-1".to_string());
@@ -826,7 +837,7 @@ async fn upload_image(
     let media = Media::new(content_type_str);
 
     // Upload the file to GCS
-    let upload_result = client.upload_object(
+    let upload_result = gcs_client.upload_object(
         &upload_request, 
         object_name.clone(),  // Object name as a separate parameter
         &UploadType::Simple(media)
