@@ -206,8 +206,42 @@ paths:
                 properties:
                   message:
                     type: string
+                  pets:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Pet'
+                    description: List of updated/created pets with their IDs
         '401':
           description: Unauthorized request
+
+  /delete-account:
+    post:
+      summary: Delete user account and personal data
+      description: Permanently deletes a user account and all associated personal data while preserving conversation history.
+      requestBody:
+        description: Delete account data signed by the user
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignedDataDeleteUserData'
+      responses:
+        '200':
+          description: Account successfully deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Account and all personal data successfully deleted. Conversation history has been preserved."
+        '400':
+          description: Invalid request
+        '404':
+          description: User not found
+        '500':
+          description: Server error during deletion process
 
   /ws/:
     get:
@@ -218,9 +252,91 @@ paths:
         - conversations: Get user conversations
         - message: Send a message
         - new_conversation: Create a new conversation
+        - conversation_history: Get message history for a conversation
+        - subscribe_conversation: Explicitly subscribe to a conversation
+        - unsubscribe_conversation: Explicitly unsubscribe from a conversation
+        
+        The system enforces role-based access control:
+        - Clients (pet owners) can create conversations and see only their own conversations
+        - Providers (veterinarians/service providers) can only see conversations they've been invited to
+        - Users can only send messages in conversations they're part of
+        
+        Messages are only broadcast to users who are subscribed to the relevant conversation.
+        
+        For detailed WebSocket API documentation, see docs/websockets.md
       responses:
         '101':
           description: Switching protocols to WebSocket
+
+  /upload-image:
+    post:
+      summary: Upload an image
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: image_type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [profile, pet]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Image uploaded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  image_id:
+                    type: string
+                    format: uuid
+                  image_url:
+                    type: string
+        '400':
+          description: Bad request
+        '401':
+          description: Unauthorized
+        '500':
+          description: Internal server error
+  
+  /images:
+    get:
+      summary: Get images for the authenticated user
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: image_type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [profile, pet]
+      responses:
+        '200':
+          description: List of images
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Image'
+        '401':
+          description: Unauthorized
+        '500':
+          description: Internal server error
 
 components:
   schemas:
@@ -280,6 +396,18 @@ components:
           format: date-time
         pet_image_url:
           type: string
+          nullable: true
+        color:
+          type: string
+          nullable: true
+        species:
+          type: string
+          nullable: true
+        spayed_neutered:
+          type: boolean
+          nullable: true
+        weight:
+          type: integer
           nullable: true
 
     RefreshToken:
@@ -450,6 +578,18 @@ components:
         pet_image_url:
           type: string
           nullable: true
+        color:
+          type: string
+          nullable: true
+        species:
+          type: string
+          nullable: true
+        spayed_neutered:
+          type: boolean
+          nullable: true
+        weight:
+          type: integer
+          nullable: true
 
     Conversation:
       type: object
@@ -470,4 +610,48 @@ components:
           format: uuid
         last_message:
           type
+
+    SignedDataDeleteUserData:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/DeleteUserData'
+        signature:
+          type: string
+
+    DeleteUserData:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        timestamp:
+          type: string
+          format: date-time
+
+    Image:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        filename:
+          type: string
+          nullable: true
+        content_type:
+          type: string
+          nullable: true
+        image_type:
+          type: string
+        image_url:
+          type: string
+        created_at:
+          type: integer
+          format: int64
+        updated_at:
+          type: integer
+          format: int64
 

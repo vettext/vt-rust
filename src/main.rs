@@ -1,10 +1,14 @@
 use actix::prelude::*; // Import Actix prelude for common traits and functionalities
 use actix_web::{post, web, App, HttpRequest, HttpResponse, HttpServer, Responder, get};
 use serde_json::json;
-use sqlx::Arguments;
-use sqlx::postgres::{PgPoolOptions, PgArguments}; // Re-added PgArguments
+use sqlx::postgres::PgPoolOptions;
 use chrono::{Utc};
 use uuid::Uuid;
+use actix_multipart::Multipart;
+use futures::{StreamExt, TryStreamExt};
+use std::io::Write;
+use std::path::Path;
+use std::fs;
 
 mod utils;
 mod models;
@@ -14,13 +18,18 @@ mod websockets; // Import the websockets module
 use crate::utils::{
     is_timestamp_valid, send_verification_request, check_verification_code,
     verify_signature, generate_refresh_token, generate_signed_encrypted_token,
-    verify_and_decode_token
+    verify_and_decode_token, extract_user_id_from_token
 };
 use crate::models::{
     SignedData, RegisterData, RequestVerificationCodeData, LoginData,
-    RefreshData, LogoutData, RefreshToken, UpdateProfileData, ProfilesQuery, User
+    RefreshData, LogoutData, RefreshToken, UpdateProfileData, ProfilesQuery, User, DeleteUserData,
+    Pet, GetImagesQuery, UploadImageQuery
 };
 use crate::websockets::websocket_route; // Import the WebSocket route handler
+
+// Google Cloud Storage upload
+use google_cloud_storage::client::{Client, ClientConfig};
+use google_cloud_storage::http::objects::upload::{UploadObjectRequest, UploadType, Media};
 
 #[post("/register")]
 async fn register(
@@ -438,158 +447,477 @@ async fn update_profile(
     data: web::Json<UpdateProfileData>,
     pool: web::Data<sqlx::PgPool>,
 ) -> impl Responder {
-    // Extract and verify the token from the Authorization header
-    let token = match req.headers().get("Authorization") {
-        Some(value) => {
-            let parts: Vec<&str> = value.to_str().unwrap_or("").split_whitespace().collect();
-            if parts.len() == 2 && parts[0] == "Bearer" {
-                parts[1]
-            } else {
-                return HttpResponse::Unauthorized().body("Invalid Authorization header");
-            }
-        }
-        None => return HttpResponse::Unauthorized().body("Missing Authorization header"),
-    };
-
-    // Verify and decode the token
-    let claims = match verify_and_decode_token(token) {
-        Ok(claims) => claims,
-        Err(_) => return HttpResponse::Unauthorized().body("Invalid token"),
-    };
-
-    let user_id = match Uuid::parse_str(claims.get_sub()) {
+    // Extract the user_id from the token
+    let user_id = match extract_user_id_from_token(&req) {
         Ok(id) => id,
-        Err(_) => return HttpResponse::Unauthorized().body("Invalid user ID in token"),
+        Err(e) => return HttpResponse::Unauthorized().body(e.to_string()),
     };
 
-    // Collect fields to update
-    let mut update_fields = Vec::new();
-    let mut args = PgArguments::default();
-    let mut param_count = 1;
+    // Start a transaction
+    let mut tx = match pool.begin().await {
+        Ok(tx) => tx,
+        Err(e) => return HttpResponse::InternalServerError().body(format!("Failed to start transaction: {}", e)),
+    };
 
-    if let Some(first_name) = &data.first_name {
-        update_fields.push(format!("first_name = ${}", param_count));
-        args.add(first_name.clone());
-        param_count += 1;
-    }
-    if let Some(last_name) = &data.last_name {
-        update_fields.push(format!("last_name = ${}", param_count));
-        args.add(last_name.clone());
-        param_count += 1;
-    }
-    if let Some(email) = &data.email {
-        update_fields.push(format!("email = ${}", param_count));
-        args.add(email.clone());
-        param_count += 1;
-    }
-    if let Some(address) = &data.address {
-        update_fields.push(format!("address = ${}", param_count));
-        args.add(address.clone());
-        param_count += 1;
-    }
-    if let Some(profile_image_url) = &data.profile_image_url {
-        update_fields.push(format!("profile_image_url = ${}", param_count));
-        args.add(profile_image_url.clone());
-        param_count += 1;
+    // Update user profile fields
+    if let Err(e) = sqlx::query!(
+        "UPDATE users SET 
+            first_name = COALESCE($1, first_name), 
+            last_name = COALESCE($2, last_name), 
+            email = COALESCE($3, email), 
+            address = COALESCE($4, address), 
+            profile_image_url = COALESCE($5, profile_image_url), 
+            updated_at = CURRENT_TIMESTAMP 
+        WHERE id = $6",
+        data.first_name,
+        data.last_name,
+        data.email,
+        data.address,
+        data.profile_image_url,
+        user_id
+    )
+    .execute(&mut *tx)
+    .await {
+        let _ = tx.rollback().await;
+        return HttpResponse::InternalServerError().body(format!("Failed to update user: {}", e));
     }
 
-    if !update_fields.is_empty() {
-        let query = format!(
-            "UPDATE users SET {} WHERE id = ${}",
-            update_fields.join(", "),
-            param_count
-        );
-        args.add(user_id);
-
-        let result = sqlx::query_with(&query, args)
-            .execute(&**pool)
-            .await;
-
-        if let Err(e) = result {
-            return HttpResponse::InternalServerError().body(format!("Failed to update user profile: {}", e));
-        }
-    }
-
-    // Update or create pets
-    for pet in &data.pets {
-        if let Some(pet_id) = pet.id {
-            // Update existing pet  
-            let mut pet_update_fields = Vec::new();
-            let mut pet_args = PgArguments::default();
-            let mut pet_param_count = 1;
-
-            if let Some(name) = &pet.name {
-                pet_update_fields.push(format!("name = ${}", pet_param_count));
-                pet_args.add(name.clone());
-                pet_param_count += 1;
-            }
-            if let Some(breed) = &pet.breed {
-                pet_update_fields.push(format!("breed = ${}", pet_param_count));
-                pet_args.add(breed.clone());
-                pet_param_count += 1;
-            }
-            if let Some(sex) = &pet.sex {
-                pet_update_fields.push(format!("sex = ${}", pet_param_count));
-                pet_args.add(sex.clone());
-                pet_param_count += 1;
-            }
-            if let Some(birthday) = &pet.birthday {
-                pet_update_fields.push(format!("birthday = ${}", pet_param_count));
-                pet_args.add(*birthday);
-                pet_param_count += 1;
-            }
-            if let Some(pet_image_url) = &pet.pet_image_url {
-                pet_update_fields.push(format!("pet_image_url = ${}", pet_param_count));
-                pet_args.add(pet_image_url.clone());
-                pet_param_count += 1;
-            }
-
-            if !pet_update_fields.is_empty() {
-                let pet_query = format!(
-                    "UPDATE pets SET {} WHERE id = ${} AND user_id = ${}",
-                    pet_update_fields.join(", "),
-                    pet_param_count,
-                    pet_param_count + 1
-                );
-                pet_args.add(pet_id);
-                pet_args.add(user_id);
-
-                if let Err(e) = sqlx::query_with(&pet_query, pet_args)
-                    .execute(&**pool)
-                    .await 
-                {
+    // Handle pets
+    let mut updated_pets = Vec::new();
+    
+    for pet_data in &data.pets {
+        let pet_result = if let Some(pet_id) = pet_data.id {
+            // Update existing pet
+            let updated_pet = match sqlx::query_as!(
+                Pet,
+                r#"
+                UPDATE pets
+                SET 
+                    name = COALESCE($1, name),
+                    breed = COALESCE($2, breed),
+                    sex = COALESCE($3, sex),
+                    birthday = COALESCE($4, birthday),
+                    pet_image_url = COALESCE($5, pet_image_url),
+                    color = COALESCE($6, color),
+                    species = COALESCE($7, species),
+                    spayed_neutered = COALESCE($8, spayed_neutered),
+                    weight = COALESCE($9, weight),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = $10 AND user_id = $11
+                RETURNING id, user_id, name, breed, sex, birthday, pet_image_url, color, species, spayed_neutered, weight
+                "#,
+                pet_data.name,
+                pet_data.breed,
+                pet_data.sex,
+                pet_data.birthday,
+                pet_data.pet_image_url,
+                pet_data.color,
+                pet_data.species,
+                pet_data.spayed_neutered,
+                pet_data.weight,
+                pet_id,
+                user_id
+            )
+            .fetch_optional(&mut *tx)
+            .await {
+                Ok(pet) => pet,
+                Err(e) => {
+                    let _ = tx.rollback().await;
                     return HttpResponse::InternalServerError().body(format!("Failed to update pet: {}", e));
                 }
+            };
+            
+            // Convert Option<Pet> to Result<Pet, Error>
+            match updated_pet {
+                Some(pet) => Ok(pet),
+                None => Err(sqlx::Error::RowNotFound)
             }
         } else {
             // Create new pet
-            // Assign to variables to avoid temporary value issues
-            let name = pet.name.clone().unwrap_or_else(|| "".to_string());
-            let breed = pet.breed.clone().unwrap_or_else(|| "".to_string());
-            let sex = pet.sex.clone().unwrap_or_else(|| "".to_string());
-            let birthday = pet.birthday.unwrap_or(Utc::now());
-            let pet_image_url = pet.pet_image_url.clone().unwrap_or_else(|| "".to_string());
+            sqlx::query_as!(
+                Pet,
+                r#"
+                INSERT INTO pets (user_id, name, breed, sex, birthday, pet_image_url, color, species, spayed_neutered, weight)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                RETURNING id, user_id, name, breed, sex, birthday, pet_image_url, color, species, spayed_neutered, weight
+                "#,
+                user_id,
+                pet_data.name.clone().unwrap_or_else(|| "".to_string()),
+                pet_data.breed.clone().unwrap_or_else(|| "".to_string()),
+                pet_data.sex.clone().unwrap_or_else(|| "".to_string()),
+                pet_data.birthday.unwrap_or(Utc::now()),
+                pet_data.pet_image_url,
+                pet_data.color,
+                pet_data.species,
+                pet_data.spayed_neutered,
+                pet_data.weight
+            )
+            .fetch_one(&mut *tx)
+            .await
+        };
 
-            if let Err(e) = sqlx::query!(
-                    "INSERT INTO pets (user_id, name, breed, sex, birthday, pet_image_url) VALUES ($1, $2, $3, $4, $5, $6)",
-                    user_id,
-                    name,
-                    breed,
-                    sex,
-                    birthday,
-                    pet_image_url
-                )
-                .execute(&**pool)
-                .await
-            {
-                return HttpResponse::InternalServerError().body(format!("Failed to create new pet: {}", e));
+        match pet_result {
+            Ok(pet) => {
+                updated_pets.push(pet);
+            }
+            Err(e) => {
+                let _ = tx.rollback().await;
+                return HttpResponse::InternalServerError().body(format!("Failed to update pet: {}", e));
             }
         }
     }
 
+    // Commit the transaction
+    if let Err(e) = tx.commit().await {
+        return HttpResponse::InternalServerError().body(format!("Failed to commit transaction: {}", e));
+    }
+
+    // Return success response with updated pets
     HttpResponse::Ok().json(json!({
-        "message": "Profile updated successfully"
+        "message": "Profile updated successfully",
+        "pets": updated_pets
     }))
+}
+
+#[post("/delete-account")]
+async fn delete_account(
+    signed_data: web::Json<SignedData<DeleteUserData>>,
+    pool: web::Data<sqlx::PgPool>
+) -> impl Responder {
+    println!("Delete account endpoint hit!");
+
+    // Check timestamp
+    if !is_timestamp_valid(&signed_data.data.timestamp) {
+        return HttpResponse::BadRequest().body("Invalid timestamp");
+    }
+
+    // Look up the user's public key by user_id
+    let user_data = match sqlx::query!(
+        "SELECT public_key FROM users WHERE id = $1",
+        &signed_data.data.user_id
+    )
+    .fetch_optional(&**pool)
+    .await {
+        Ok(Some(record)) => record,
+        Ok(None) => return HttpResponse::NotFound().body(format!("User not found for id: {}", &signed_data.data.user_id)),
+        Err(e) => return HttpResponse::InternalServerError().body(format!("Database error: {}", e)),
+    };
+
+    // Verify signature
+    if let Err(e) = verify_signature(
+        &signed_data.data,
+        &signed_data.signature,
+        &user_data.public_key
+    ) {
+        println!("Signature verification failed: {}", e);
+        return HttpResponse::BadRequest().body("Invalid signature");
+    }
+
+    // Start a transaction to ensure all deletions succeed or fail together
+    let mut tx = match pool.begin().await {
+        Ok(tx) => tx,
+        Err(e) => return HttpResponse::InternalServerError().body(format!("Failed to start transaction: {}", e)),
+    };
+
+    // Delete refresh tokens
+    if let Err(e) = sqlx::query!(
+        "DELETE FROM refresh_tokens WHERE user_id = $1",
+        &signed_data.data.user_id
+    )
+    .execute(&mut *tx)
+    .await {
+        let _ = tx.rollback().await;
+        return HttpResponse::InternalServerError().body(format!("Failed to delete refresh tokens: {}", e));
+    }
+
+    // Delete pets
+    if let Err(e) = sqlx::query!(
+        "DELETE FROM pets WHERE user_id = $1",
+        &signed_data.data.user_id
+    )
+    .execute(&mut *tx)
+    .await {
+        let _ = tx.rollback().await;
+        return HttpResponse::InternalServerError().body(format!("Failed to delete pets: {}", e));
+    }
+
+    // Finally, delete the user
+    if let Err(e) = sqlx::query!(
+        "DELETE FROM users WHERE id = $1",
+        &signed_data.data.user_id
+    )
+    .execute(&mut *tx)
+    .await {
+        let _ = tx.rollback().await;
+        return HttpResponse::InternalServerError().body(format!("Failed to delete user: {}", e));
+    }
+
+    // Commit the transaction
+    if let Err(e) = tx.commit().await {
+        return HttpResponse::InternalServerError().body(format!("Failed to commit transaction: {}", e));
+    }
+
+    HttpResponse::Ok().json(json!({
+        "message": "Account and all personal data successfully deleted. Conversation history has been preserved."
+    }))
+}
+
+#[post("/upload-image")]
+async fn upload_image(
+    req: HttpRequest,
+    mut payload: Multipart,
+    query: web::Query<UploadImageQuery>,
+    pool: web::Data<sqlx::PgPool>
+) -> impl Responder {
+    println!("Upload image endpoint hit!");
+
+    // Extract the user_id from the token
+    let user_id = match extract_user_id_from_token(&req) {
+        Ok(id) => id,
+        Err(e) => return HttpResponse::Unauthorized().body(e.to_string()),
+    };
+
+    // Validate image type
+    let image_type = match &query.image_type {
+        Some(image_type) if ["profile", "pet"].contains(&image_type.as_str()) => image_type.clone(),
+        Some(_) => return HttpResponse::BadRequest().body("Invalid image_type. Must be 'profile' or 'pet'"),
+        None => return HttpResponse::BadRequest().body("Missing image_type parameter"),
+    };
+
+    // Generate a unique image ID
+    let image_id = Uuid::new_v4();
+    
+    // Process the multipart form data
+    let mut image_data: Option<Vec<u8>> = None;
+    let mut filename: Option<String> = None;
+    let mut content_type: Option<String> = None;
+    
+    while let Ok(Some(mut field)) = payload.try_next().await {
+        let content_disposition = match field.content_disposition() {
+            Some(cd) => cd,
+            None => continue,
+        };
+        
+        if let Some(name) = content_disposition.get_name() {
+            if name == "file" {
+                // Get the filename
+                if let Some(fname) = content_disposition.get_filename() {
+                    filename = Some(fname.to_string());
+                    
+                    // Get the content type
+                    if let Some(ct) = field.content_type() {
+                        content_type = Some(ct.to_string());
+                    }
+                    
+                    // Read the file data
+                    let mut data = Vec::new();
+                    while let Some(chunk) = field.next().await {
+                        match chunk {
+                            Ok(bytes) => {
+                                data.extend_from_slice(&bytes);
+                            },
+                            Err(e) => {
+                                return HttpResponse::InternalServerError()
+                                    .body(format!("Error reading file: {}", e));
+                            }
+                        }
+                    }
+                    
+                    image_data = Some(data);
+                }
+            }
+        }
+    }
+    
+    // Check if we have the image data
+    let image_bytes = match image_data {
+        Some(data) => data,
+        None => return HttpResponse::BadRequest().body("No image file provided"),
+    };
+    
+    // Check file type
+    let file_ext = match filename {
+        Some(ref name) => Path::new(name)
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or("unknown"),
+        None => "unknown",
+    };
+    
+    // Validate file type
+    if !["jpg", "jpeg", "png", "gif"].contains(&file_ext) {
+        return HttpResponse::BadRequest().body("Invalid file type. Only jpg, jpeg, png, and gif are allowed.");
+    }
+    
+    // Create a temporary directory if it doesn't exist
+    let temp_dir = "temp_uploads";
+    if !Path::new(temp_dir).exists() {
+        match fs::create_dir(temp_dir) {
+            Ok(_) => {},
+            Err(e) => {
+                return HttpResponse::InternalServerError()
+                    .body(format!("Failed to create temp directory: {}", e));
+            }
+        }
+    }
+    
+    // Save the file temporarily
+    let temp_path = format!("{}/{}.{}", temp_dir, image_id, file_ext);
+    let mut file = match fs::File::create(&temp_path) {
+        Ok(f) => f,
+        Err(e) => {
+            return HttpResponse::InternalServerError()
+                .body(format!("Failed to create temp file: {}", e));
+        }
+    };
+    
+    match file.write_all(&image_bytes) {
+        Ok(_) => {},
+        Err(e) => {
+            return HttpResponse::InternalServerError()
+                .body(format!("Failed to write to temp file: {}", e));
+        }
+    }
+    
+    // Initialize GCS client with credentials from environment variable or default
+    let client_config = match std::env::var("GCS_CREDENTIALS") {
+        Ok(credentials_path) => {
+            // Use explicit credentials file if provided
+            // Set the credentials file path as an environment variable
+            std::env::set_var("GOOGLE_APPLICATION_CREDENTIALS", &credentials_path);
+            println!("Using credentials from: {}", credentials_path);
+            ClientConfig::default()
+        },
+        Err(_) => {
+            // Fall back to default credentials (from environment)
+            ClientConfig::default()
+        }
+    };
+
+    let client = Client::new(client_config);
+
+    // Get bucket name from environment variable
+    let bucket_name = std::env::var("GCS_BUCKET_NAME").unwrap_or_else(|_| "vet-text-1".to_string());
+
+    // Create upload request
+    let mut upload_request = UploadObjectRequest::default();
+    upload_request.bucket = bucket_name.clone();
+
+    // Define object path based on image type and user ID
+    let object_name = format!(
+        "{}/{}/{}.{}",
+        image_type,
+        user_id,
+        image_id,
+        file_ext
+    );
+
+    // Set content type if available
+    let content_type_str = content_type.clone().unwrap_or_else(|| {
+        match file_ext {
+            "jpg" | "jpeg" => "image/jpeg".to_string(),
+            "png" => "image/png".to_string(),
+            "gif" => "image/gif".to_string(),
+            _ => "application/octet-stream".to_string(),
+        }
+    });
+
+    // Create a Media object for the content type
+    let media = Media::new(content_type_str);
+
+    // Upload the file to GCS
+    let upload_result = client.upload_object(
+        &upload_request, 
+        object_name.clone(),  // Object name as a separate parameter
+        &UploadType::Simple(media)
+    ).await;
+    
+    // Clean up the temporary file
+    fs::remove_file(&temp_path).ok();
+    
+    let image_url = match upload_result {
+        Ok(_) => {
+            // Generate a public URL for the uploaded image
+            format!(
+                "https://storage.googleapis.com/{}/{}",
+                bucket_name,
+                object_name
+            )
+        },
+        Err(e) => {
+            return HttpResponse::InternalServerError().body(format!("Failed to upload image to GCS: {}", e));
+        }
+    };
+    
+    // Store the image metadata in the database
+    let result = sqlx::query!(
+        "INSERT INTO images (id, user_id, filename, content_type, image_type, image_url) 
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id",
+        image_id,
+        user_id,
+        filename,
+        content_type,
+        image_type,
+        image_url
+    )
+    .fetch_one(&**pool)
+    .await;
+    
+    match result {
+        Ok(_) => HttpResponse::Ok().json(json!({
+            "message": "Image uploaded successfully",
+            "image_id": image_id,
+            "image_url": image_url
+        })),
+        Err(e) => {
+            HttpResponse::InternalServerError().body(format!("Failed to store image metadata: {}", e))
+        }
+    }
+}
+
+#[get("/images")]
+async fn get_images(
+    req: HttpRequest,
+    query: web::Query<GetImagesQuery>,
+    pool: web::Data<sqlx::PgPool>,
+) -> impl Responder {
+    // Extract the user_id from the token
+    let user_id = match extract_user_id_from_token(&req) {
+        Ok(id) => id,
+        Err(e) => return HttpResponse::Unauthorized().body(e.to_string()),
+    };
+
+    // Build the query based on whether image_type filter is provided
+    let images = if let Some(image_type) = &query.image_type {
+        sqlx::query_as!(
+            models::Image,
+            "SELECT id, user_id, filename, content_type, image_type, image_url, created_at, updated_at 
+             FROM images 
+             WHERE user_id = $1 AND image_type = $2
+             ORDER BY created_at DESC",
+            user_id,
+            image_type
+        )
+        .fetch_all(&**pool)
+        .await
+    } else {
+        sqlx::query_as!(
+            models::Image,
+            "SELECT id, user_id, filename, content_type, image_type, image_url, created_at, updated_at 
+             FROM images 
+             WHERE user_id = $1
+             ORDER BY created_at DESC",
+            user_id
+        )
+        .fetch_all(&**pool)
+        .await
+    };
+
+    match images {
+        Ok(images) => HttpResponse::Ok().json(images),
+        Err(e) => HttpResponse::InternalServerError().body(format!("Failed to fetch images: {}", e)),
+    }
 }
 
 #[actix_web::main]
@@ -609,7 +937,7 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(pool.clone()))
-            .app_data(web::Data::new(ws_server.clone())) // Share the server address with handlers
+            .app_data(web::Data::new(ws_server.clone()))
             .service(register)
             .service(request_verification_code)
             .service(login)
@@ -617,10 +945,14 @@ async fn main() -> std::io::Result<()> {
             .service(logout)
             .service(get_profiles)
             .service(update_profile)
-            .service(websocket_route) // Register the WebSocket route
+            .service(delete_account)
+            .service(upload_image)
+            .service(get_images)
+            .service(websocket_route)
     })
     // .bind(("127.0.0.1", 8080))?
     .bind(("0.0.0.0", 8080))?
     .run()
     .await
 }
+

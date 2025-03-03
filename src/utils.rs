@@ -12,6 +12,8 @@ use rand::{thread_rng, Rng};
 use uuid::Uuid;
 use ed25519_dalek::{VerifyingKey, Signature};
 use serde_json::Value;
+use anyhow;
+use actix_web::HttpRequest;
 
 pub async fn send_verification_request(phone_number: &str) -> Result<(), Box<dyn std::error::Error>> {
     let account_sid = std::env::var("TWILIO_ACCOUNT_SID")?;
@@ -245,4 +247,31 @@ pub fn verify_and_decode_token(
     let token_data = decode::<Claims>(&token, &decoding_key, &validation)?;
 
     Ok(token_data.claims)
+}
+
+pub fn extract_user_id_from_token(req: &HttpRequest) -> Result<Uuid, anyhow::Error> {
+    // Extract the token from the Authorization header
+    let token = match req.headers().get("Authorization") {
+        Some(value) => {
+            let parts: Vec<&str> = value.to_str().unwrap_or("").split_whitespace().collect();
+            if parts.len() == 2 && parts[0] == "Bearer" {
+                parts[1]
+            } else {
+                return Err(anyhow::anyhow!("Invalid Authorization header"));
+            }
+        }
+        None => return Err(anyhow::anyhow!("Missing Authorization header")),
+    };
+
+    // Verify and decode the token
+    let claims = match verify_and_decode_token(token) {
+        Ok(claims) => claims,
+        Err(e) => return Err(anyhow::anyhow!("Token verification failed: {}", e)),
+    };
+    
+    // Extract the user_id from the token
+    let user_id = Uuid::parse_str(claims.get_sub())
+        .map_err(|_| anyhow::anyhow!("Invalid user ID in token"))?;
+    
+    Ok(user_id)
 }

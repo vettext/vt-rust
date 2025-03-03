@@ -31,6 +31,10 @@ pub struct Pet {
     #[serde(with = "chrono::serde::ts_milliseconds")]
     pub birthday: DateTime<Utc>,
     pub pet_image_url: Option<String>,
+    pub color: Option<String>,
+    pub species: Option<String>,
+    pub spayed_neutered: Option<bool>,
+    pub weight: Option<i32>,
 }
 
 #[derive(FromRow, Debug)]
@@ -103,6 +107,10 @@ pub struct PetData {
     #[serde(with = "chrono::serde::ts_milliseconds_option")]
     pub birthday: Option<DateTime<Utc>>,
     pub pet_image_url: Option<String>,
+    pub color: Option<String>,
+    pub species: Option<String>,
+    pub spayed_neutered: Option<bool>,
+    pub weight: Option<i32>,
 }
 
 #[derive(serde::Deserialize)]
@@ -115,10 +123,10 @@ pub struct ProfilesQuery {
 pub struct WsMessage {
     pub sender_id: Uuid,
     pub event: String,
-    pub data: serde_json::Value,
+    pub params: serde_json::Value,
 }
 
-#[derive(FromRow, Debug, Serialize, Deserialize)]
+#[derive(FromRow, Debug, Serialize, Deserialize, Clone)]
 pub struct Conversation {
     pub id: Uuid,
     pub providers: Vec<Uuid>,
@@ -126,7 +134,7 @@ pub struct Conversation {
     pub pet: Uuid,
     pub last_message: Option<String>,
     #[serde(with = "chrono::serde::ts_milliseconds")]
-    pub last_updated_timestamp: DateTime<Utc>, // is this necessary if last_message is a full message struct with a timestamp?
+    pub last_updated_timestamp: DateTime<Utc>,
 }
 
 #[derive(FromRow, Debug, Serialize, Deserialize)]
@@ -139,7 +147,7 @@ pub struct Message {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-#[serde(tag = "event", content = "params")]
+#[serde(tag = "event", content = "data")]
 pub enum WsEvent {
     Conversations,
     Message {
@@ -162,4 +170,41 @@ pub struct ConversationHistoryResponse {
     pub messages: Vec<Message>,
     pub total_count: i32,
     pub has_more: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct DeleteUserData {
+    pub user_id: Uuid,
+    pub timestamp: String,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct UploadImageData {
+    pub user_id: Uuid,
+    pub timestamp: String,
+    pub image_type: String, // "profile" or "pet"
+}
+
+#[derive(FromRow, Debug, Serialize, Deserialize)]
+pub struct Image {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub filename: Option<String>,
+    pub content_type: Option<String>,
+    pub image_type: String, // "profile" or "pet"
+    pub image_url: String,
+    #[serde(with = "chrono::serde::ts_milliseconds")]
+    pub created_at: DateTime<Utc>,
+    #[serde(with = "chrono::serde::ts_milliseconds")]
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Deserialize)]
+pub struct GetImagesQuery {
+    pub image_type: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct UploadImageQuery {
+    pub image_type: Option<String>,
 }

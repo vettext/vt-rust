@@ -3,12 +3,13 @@ use sqlx::PgPool;
 use crate::models::Conversation;
 use chrono::{DateTime, Utc};
 use crate::models::Message;
+use anyhow::Result;
 
 pub struct ConversationService;
 
 impl ConversationService {
-    pub async fn get_conversations_by_client_id(pool: &PgPool, client_id: Uuid) -> Result<Vec<Conversation>, sqlx::Error> {
-        sqlx::query_as!(
+    pub async fn get_conversations_by_client_id(pool: &PgPool, client_id: Uuid) -> Result<Vec<Conversation>> {
+        let result = sqlx::query_as!(
             Conversation,
             "
             SELECT id, providers, client, pet, last_message, last_updated_timestamp
@@ -19,7 +20,15 @@ impl ConversationService {
             client_id
         )
         .fetch_all(pool)
-        .await
+        .await;
+
+        match result {
+            Ok(conversations) => Ok(conversations),
+            Err(e) => {
+                eprintln!("Database error: {:?}", e);
+                Err(anyhow::anyhow!("Failed to fetch conversations: {}", e))
+            }
+        }
     }
 
     pub async fn get_conversations_by_provider_id(pool: &PgPool, provider_id: Uuid) -> Result<Vec<Conversation>, sqlx::Error> {
@@ -92,6 +101,46 @@ impl ConversationService {
         .await?;
 
         Ok(message)
+    }
+
+    pub async fn get_conversation_messages(
+        pool: &PgPool, 
+        conversation_id: Uuid, 
+        page: i32, 
+        limit: i32
+    ) -> Result<(Vec<Message>, i32, bool), sqlx::Error> {
+        // Calculate offset
+        let offset = page * limit;
+        
+        // Get total count
+        let total_count = sqlx::query!(
+            "SELECT COUNT(*) as count FROM messages WHERE conversation_id = $1",
+            conversation_id
+        )
+        .fetch_one(pool)
+        .await?
+        .count
+        .unwrap_or(0) as i32;
+        
+        // Get messages with pagination
+        let messages = sqlx::query_as!(
+            Message,
+            "SELECT id, conversation_id, content, timestamp 
+             FROM messages 
+             WHERE conversation_id = $1 
+             ORDER BY timestamp DESC 
+             LIMIT $2 OFFSET $3",
+            conversation_id,
+            limit as i64,
+            offset as i64
+        )
+        .fetch_all(pool)
+        .await?;
+        
+        // Calculate if there are more messages
+        let has_more = (offset + limit) < total_count;
+        
+        Ok((messages, total_count, has_more))
     }
 }
 
