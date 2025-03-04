@@ -16,7 +16,7 @@ fn setup_test_environment() {
 // Change this to toggle between local and production servers
 const USE_LOCAL_SERVER: bool = false;
 const LOCAL_SERVER_URL: &str = "http://localhost:8080";
-const PROD_SERVER_URL: &str = "http://34.83.125.159:8080";
+const PROD_SERVER_URL: &str = "http://35.233.201.183:8080";
 
 fn get_server_url() -> &'static str {
     if USE_LOCAL_SERVER {
@@ -31,13 +31,19 @@ fn is_local_mode() -> bool {
     USE_LOCAL_SERVER
 }
 
+async fn create_test_user() -> Result<Uuid, Box<dyn StdError>> {
+    
+    let existing_user_id = Uuid::parse_str("e1bf84be-0d14-42ec-8f1c-77918c3b9259")?;
+    Ok(existing_user_id)
+}
+
 #[tokio::test]
 async fn test_image_upload() -> Result<(), Box<dyn StdError>> {
     // Load environment variables from .env file
     setup_test_environment();
     
-    // Create a test user ID
-    let user_id = Uuid::new_v4();
+    // Create a test user in the database first
+    let user_id = create_test_user().await?;
     
     // Generate an access token for the user
     let (access_token, _) = generate_test_token(user_id, "client")
