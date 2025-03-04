@@ -243,6 +243,106 @@ paths:
         '500':
           description: Server error during deletion process
 
+  /pet:
+    post:
+      summary: Create or update a pet
+      description: Create a new pet or update an existing pet's details
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                  description: Pet ID (omit when creating a new pet)
+                name:
+                  type: string
+                  description: Required when creating a new pet
+                breed:
+                  type: string
+                  description: Required when creating a new pet
+                sex:
+                  type: string
+                  description: Required when creating a new pet (M or F)
+                birthday:
+                  type: string
+                  format: date
+                pet_image_url:
+                  type: string
+      responses:
+        '200':
+          description: Pet updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  pet:
+                    $ref: '#/components/schemas/Pet'
+        '201':
+          description: Pet created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  pet:
+                    $ref: '#/components/schemas/Pet'
+        '400':
+          description: Bad request - missing required fields for new pet
+        '401':
+          description: Unauthorized
+        '404':
+          description: Pet not found or doesn't belong to user (when updating)
+        '500':
+          description: Server error
+
+    delete:
+      summary: Delete a pet
+      description: Remove a pet from a user's account
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - id
+              properties:
+                id:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Pet deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  pet_id:
+                    type: string
+                    format: uuid
+        '401':
+          description: Unauthorized
+        '404':
+          description: Pet not found or doesn't belong to user
+        '500':
+          description: Server error
+
   /ws/:
     get:
       summary: WebSocket endpoint for real-time communication

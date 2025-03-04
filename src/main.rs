@@ -1,5 +1,5 @@
 use actix::prelude::*; // Import Actix prelude for common traits and functionalities
-use actix_web::{post, web, App, HttpRequest, HttpResponse, HttpServer, Responder, get};
+use actix_web::{post, web, App, HttpRequest, HttpResponse, HttpServer, Responder, get, delete};
 use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
 use chrono::{Utc};
@@ -24,7 +24,7 @@ use crate::utils::{
 use crate::models::{
     SignedData, RegisterData, RequestVerificationCodeData, LoginData,
     RefreshData, LogoutData, RefreshToken, UpdateProfileData, ProfilesQuery, User, DeleteUserData,
-    Pet, GetImagesQuery, UploadImageQuery
+    Pet, GetImagesQuery, UploadImageQuery, UpdatePetData, DeletePetData
 };
 use crate::websockets::websocket_route; // Import the WebSocket route handler
 
@@ -991,6 +991,152 @@ async fn get_images(
     }
 }
 
+#[post("/pet")]
+async fn update_pet(
+    req: HttpRequest,
+    data: web::Json<UpdatePetData>,
+    pool: web::Data<sqlx::PgPool>,
+) -> impl Responder {
+    // Extract the user_id from the token
+    let user_id = match extract_user_id_from_token(&req) {
+        Ok(id) => id,
+        Err(e) => return HttpResponse::Unauthorized().body(e.to_string()),
+    };
+
+    // Check if we're updating or creating a pet
+    if let Some(pet_id) = data.id {
+        // UPDATING: Verify the pet belongs to the user
+        let pet_exists = match sqlx::query!(
+            "SELECT COUNT(*) as count FROM pets WHERE id = $1 AND user_id = $2",
+            pet_id,
+            user_id
+        )
+        .fetch_one(&**pool)
+        .await {
+            Ok(result) => result.count.unwrap_or(0) > 0,
+            Err(e) => return HttpResponse::InternalServerError().body(format!("Database error: {}", e)),
+        };
+
+        if !pet_exists {
+            return HttpResponse::NotFound().body("Pet not found or does not belong to you");
+        }
+
+        // Convert NaiveDate to DateTime<Utc> if provided
+        let birthday_datetime = data.birthday.map(|naive_date| {
+            // Convert NaiveDate to DateTime<Utc>
+            chrono::DateTime::<Utc>::from_utc(
+                naive_date.and_hms_opt(0, 0, 0).unwrap_or_default(),
+                Utc
+            )
+        });
+
+        // Update the pet
+        match sqlx::query_as!(
+            Pet,
+            "UPDATE pets
+            SET 
+                name = COALESCE($1, name),
+                breed = COALESCE($2, breed),
+                sex = COALESCE($3, sex),
+                birthday = COALESCE($4, birthday),
+                pet_image_url = COALESCE($5, pet_image_url)
+            WHERE id = $6 AND user_id = $7
+            RETURNING id, user_id, name, breed, sex, birthday, pet_image_url, color, species, spayed_neutered, weight",
+            data.name,
+            data.breed,
+            data.sex,
+            birthday_datetime,
+            data.pet_image_url,
+            pet_id,
+            user_id
+        )
+        .fetch_one(&**pool)
+        .await {
+            Ok(updated_pet) => HttpResponse::Ok().json(json!({
+                "message": "Pet updated successfully",
+                "pet": updated_pet
+            })),
+            Err(e) => HttpResponse::InternalServerError().body(format!("Failed to update pet: {}", e)),
+        }
+    } else {
+        // CREATING: Validate required fields for new pet
+        if data.name.is_none() || data.breed.is_none() || data.sex.is_none() {
+            return HttpResponse::BadRequest().body("Name, breed, and sex are required when creating a new pet");
+        }
+
+        // Convert NaiveDate to DateTime<Utc> if provided
+        let birthday_datetime = data.birthday.map(|naive_date| {
+            chrono::DateTime::<Utc>::from_utc(
+                naive_date.and_hms_opt(0, 0, 0).unwrap_or_default(),
+                Utc
+            )
+        });
+
+        // Create a new pet
+        match sqlx::query_as!(
+            Pet,
+            "INSERT INTO pets (user_id, name, breed, sex, birthday, pet_image_url)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING id, user_id, name, breed, sex, birthday, pet_image_url, color, species, spayed_neutered, weight",
+            user_id,
+            data.name,
+            data.breed,
+            data.sex,
+            birthday_datetime,
+            data.pet_image_url
+        )
+        .fetch_one(&**pool)
+        .await {
+            Ok(new_pet) => HttpResponse::Created().json(json!({
+                "message": "Pet created successfully",
+                "pet": new_pet
+            })),
+            Err(e) => HttpResponse::InternalServerError().body(format!("Failed to create pet: {}", e)),
+        }
+    }
+}
+
+#[delete("/pet")]
+async fn delete_pet(
+    req: HttpRequest,
+    data: web::Json<DeletePetData>,
+    pool: web::Data<sqlx::PgPool>,
+) -> impl Responder {
+    // Extract the user_id from the token
+    let user_id = match extract_user_id_from_token(&req) {
+        Ok(id) => id,
+        Err(e) => return HttpResponse::Unauthorized().body(e.to_string()),
+    };
+
+    // First verify the pet belongs to the user
+    let pet = match sqlx::query!(
+        "SELECT id, name FROM pets WHERE id = $1 AND user_id = $2",
+        data.id,
+        user_id
+    )
+    .fetch_optional(&**pool)
+    .await {
+        Ok(Some(pet)) => pet,
+        Ok(None) => return HttpResponse::NotFound().body("Pet not found or does not belong to you"),
+        Err(e) => return HttpResponse::InternalServerError().body(format!("Database error: {}", e)),
+    };
+
+    // Delete the pet
+    match sqlx::query!(
+        "DELETE FROM pets WHERE id = $1 AND user_id = $2",
+        data.id,
+        user_id
+    )
+    .execute(&**pool)
+    .await {
+        Ok(_) => HttpResponse::Ok().json(json!({
+            "message": "Pet deleted successfully",
+            "pet_id": data.id
+        })),
+        Err(e) => HttpResponse::InternalServerError().body(format!("Failed to delete pet: {}", e)),
+    }
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     dotenv::dotenv().ok();
@@ -1019,6 +1165,8 @@ async fn main() -> std::io::Result<()> {
             .service(delete_account)
             .service(upload_image)
             .service(get_images)
+            .service(update_pet)
+            .service(delete_pet)
             .service(websocket_route)
     })
     // .bind(("127.0.0.1", 8080))?

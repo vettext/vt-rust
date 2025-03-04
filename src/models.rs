@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use chrono::{DateTime, Utc};
 use sqlx::FromRow;
+use chrono::naive::NaiveDate;
 
 #[derive(FromRow, Debug, Serialize, Deserialize)]
 pub struct User {
@@ -207,4 +208,19 @@ pub struct GetImagesQuery {
 #[derive(Deserialize)]
 pub struct UploadImageQuery {
     pub image_type: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct UpdatePetData {
+    pub id: Option<Uuid>,
+    pub name: Option<String>,
+    pub breed: Option<String>,
+    pub sex: Option<String>,
+    pub birthday: Option<NaiveDate>,
+    pub pet_image_url: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DeletePetData {
+    pub id: Uuid,  // Required to identify which pet to delete
 }
