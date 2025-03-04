@@ -9,6 +9,7 @@ use futures::{StreamExt, TryStreamExt};
 use std::io::Write;
 use std::path::Path;
 use std::fs;
+use std::process::Command;
 
 mod utils;
 mod models;
@@ -840,13 +841,12 @@ async fn upload_image(
     println!("Attempting to upload file to GCS bucket: {}, path: {}", bucket_name, object_name);
 
     // Debug: print service account info before upload attempt
-    let debug_cmd = tokio::process::Command::new("curl")
+    let debug_cmd = Command::new("curl")
         .arg("-s")
         .arg("http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email")
         .arg("-H")
         .arg("Metadata-Flavor: Google")
-        .output()
-        .await;
+        .output();
 
     match debug_cmd {
         Ok(output) => {
@@ -855,11 +855,10 @@ async fn upload_image(
             
             // Also check if we can list the bucket to verify permissions
             println!("Checking if we can list the bucket...");
-            let list_cmd = tokio::process::Command::new("gsutil")
+            let list_cmd = Command::new("gsutil")
                 .arg("ls")
                 .arg(format!("gs://{}", bucket_name))
-                .output()
-                .await;
+                .output();
                 
             match list_cmd {
                 Ok(list_output) => {
