@@ -16,7 +16,7 @@ fn setup_test_environment() {
 // Change this to toggle between local and production servers
 const USE_LOCAL_SERVER: bool = false;
 const LOCAL_SERVER_URL: &str = "http://localhost:8080";
-const PROD_SERVER_URL: &str = "http://35.233.201.183:8080";
+const PROD_SERVER_URL: &str = "http://34.145.29.219:8080";
 
 fn get_server_url() -> &'static str {
     if USE_LOCAL_SERVER {
