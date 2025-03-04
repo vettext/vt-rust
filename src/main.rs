@@ -488,7 +488,7 @@ async fn update_profile(
     
     for pet_data in &data.pets {
         let pet_result = if let Some(pet_id) = pet_data.id {
-            // Update existing pet
+            // Update existing pet  
             let updated_pet = match sqlx::query_as!(
                 Pet,
                 r#"
@@ -542,7 +542,7 @@ async fn update_profile(
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                 RETURNING id, user_id, name, breed, sex, birthday, pet_image_url, color, species, spayed_neutered, weight
                 "#,
-                user_id,
+                    user_id,
                 pet_data.name.clone().unwrap_or_else(|| "".to_string()),
                 pet_data.breed.clone().unwrap_or_else(|| "".to_string()),
                 pet_data.sex.clone().unwrap_or_else(|| "".to_string()),
@@ -554,7 +554,7 @@ async fn update_profile(
                 pet_data.weight
             )
             .fetch_one(&mut *tx)
-            .await
+                .await
         };
 
         match pet_result {
@@ -837,11 +837,72 @@ async fn upload_image(
     let media = Media::new(content_type_str);
 
     // Upload the file to GCS
+    println!("Attempting to upload file to GCS bucket: {}, path: {}", bucket_name, object_name);
+
+    // Debug: print service account info before upload attempt
+    let debug_cmd = tokio::process::Command::new("curl")
+        .arg("-s")
+        .arg("http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email")
+        .arg("-H")
+        .arg("Metadata-Flavor: Google")
+        .output()
+        .await;
+
+    match debug_cmd {
+        Ok(output) => {
+            let email = String::from_utf8_lossy(&output.stdout);
+            println!("Using service account: {}", email);
+            
+            // Also check if we can list the bucket to verify permissions
+            println!("Checking if we can list the bucket...");
+            let list_cmd = tokio::process::Command::new("gsutil")
+                .arg("ls")
+                .arg(format!("gs://{}", bucket_name))
+                .output()
+                .await;
+                
+            match list_cmd {
+                Ok(list_output) => {
+                    if list_output.status.success() {
+                        println!("Successfully listed bucket contents");
+                    } else {
+                        println!("Failed to list bucket: {}", 
+                            String::from_utf8_lossy(&list_output.stderr));
+                    }
+                },
+                Err(e) => println!("Error running gsutil: {}", e)
+            }
+        },
+        Err(e) => println!("Failed to get service account: {}", e)
+    };
+
     let upload_result = gcs_client.upload_object(
         &upload_request, 
         object_name.clone(),  // Object name as a separate parameter
         &UploadType::Simple(media)
     ).await;
+
+    // Debug result
+    match &upload_result {
+        Ok(_) => println!("GCS upload successful for {}", object_name),
+        Err(e) => {
+            eprintln!("GCS upload error details:");
+            eprintln!("- Error type: {:?}", e);
+            eprintln!("- Error display: {}", e);
+            
+            // Try to extract more info from the error
+            let error_string = format!("{:?}", e);
+            if error_string.contains("status code: 403") {
+                eprintln!("- This is a permissions error (403 Forbidden)");
+            } else if error_string.contains("status code: 404") {
+                eprintln!("- This is a not found error (404 Not Found) - check bucket name");
+            }
+            
+            // Check bucket name case sensitivity
+            eprintln!("- Using bucket name: '{}' (check case sensitivity)", bucket_name);
+            eprintln!("- Object path: '{}'", object_name);
+        }
+    }
     
     // Clean up the temporary file
     fs::remove_file(&temp_path).ok();
