@@ -2,7 +2,7 @@ use reqwest::Client;
 use uuid::Uuid;
 use serde_json::{json, Value};
 use std::error::Error as StdError;
-use chrono::NaiveDate;
+use chrono::{DateTime, Utc};
 
 mod testing_utils;
 use testing_utils::generate_test_token;
@@ -57,7 +57,7 @@ async fn test_create_and_update_pet() -> Result<(), Box<dyn StdError>> {
         "name": "Test Pet",
         "breed": "Test Breed",
         "sex": "F",
-        "birthday": "2020-01-01"
+        "birthday": "2020-01-01T00:00:00Z"
     });
     
     // Send the POST request to create pet
@@ -93,8 +93,8 @@ async fn test_create_and_update_pet() -> Result<(), Box<dyn StdError>> {
         "id": pet_id,
         "name": "Updated Test Pet",
         "breed": "Updated Test Breed",
-        "sex": "M"
-        // Omit other fields to test partial updates
+        "sex": "M",
+        "birthday": "2020-05-15T00:00:00Z"
     });
     
     // Send the POST request to update pet

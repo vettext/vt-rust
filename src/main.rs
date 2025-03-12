@@ -6,10 +6,9 @@ use chrono::{Utc};
 use uuid::Uuid;
 use actix_multipart::Multipart;
 use futures::{StreamExt, TryStreamExt};
-use std::io::Write;
 use std::path::Path;
-use std::fs;
-use std::process::Command;
+use google_cloud_default::WithAuthExt;
+use google_cloud_storage::client::{Client as GcsClient, ClientConfig};
 
 mod utils;
 mod models;
@@ -27,11 +26,6 @@ use crate::models::{
     Pet, GetImagesQuery, UploadImageQuery, UpdatePetData, DeletePetData
 };
 use crate::websockets::websocket_route; // Import the WebSocket route handler
-
-// Google Cloud Storage upload
-use google_cloud_storage::client::{Client, ClientConfig};
-use google_cloud_storage::http::objects::upload::{UploadObjectRequest, UploadType, Media};
-use google_cloud_default::WithAuthExt;
 
 #[post("/register")]
 async fn register(
@@ -547,7 +541,7 @@ async fn update_profile(
                 pet_data.name.clone().unwrap_or_else(|| "".to_string()),
                 pet_data.breed.clone().unwrap_or_else(|| "".to_string()),
                 pet_data.sex.clone().unwrap_or_else(|| "".to_string()),
-                pet_data.birthday.unwrap_or(Utc::now()),
+                pet_data.birthday,
                 pet_data.pet_image_url,
                 pet_data.color,
                 pet_data.species,
@@ -737,149 +731,65 @@ async fn upload_image(
         None => return HttpResponse::BadRequest().body("No image file provided"),
     };
     
-    // Check file type
-    let file_ext = match filename {
-        Some(ref name) => Path::new(name)
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .unwrap_or("unknown"),
-        None => "unknown",
-    };
-    
-    // Validate file type
-    if !["jpg", "jpeg", "png", "gif"].contains(&file_ext) {
-        return HttpResponse::BadRequest().body("Invalid file type. Only jpg, jpeg, png, and gif are allowed.");
-    }
-    
-    // Create a temporary directory if it doesn't exist
-    let temp_dir = "temp_uploads";
-    if !Path::new(temp_dir).exists() {
-        match fs::create_dir(temp_dir) {
-            Ok(_) => {},
-            Err(e) => {
-                return HttpResponse::InternalServerError()
-                    .body(format!("Failed to create temp directory: {}", e));
-            }
-        }
-    }
-    
-    // Save the file temporarily
-    let temp_path = format!("{}/{}.{}", temp_dir, image_id, file_ext);
-    let mut file = match fs::File::create(&temp_path) {
-        Ok(f) => f,
-        Err(e) => {
-            return HttpResponse::InternalServerError()
-                .body(format!("Failed to create temp file: {}", e));
-        }
-    };
-    
-    match file.write_all(&image_bytes) {
-        Ok(_) => {},
-        Err(e) => {
-            return HttpResponse::InternalServerError()
-                .body(format!("Failed to write to temp file: {}", e));
-        }
-    }
-    
-    // Initialize GCS client with credentials from environment variable or default
-    let client_config = match std::env::var("GCS_CREDENTIALS") {
-        Ok(credentials_path) => {
-            // Use explicit credentials file if provided
-            // Set the credentials file path as an environment variable
-            std::env::set_var("GOOGLE_APPLICATION_CREDENTIALS", &credentials_path);
-            println!("Using credentials from: {}", credentials_path);
-            ClientConfig::default()
-        },
-        Err(_) => {
-            // Fall back to default credentials (from environment)
-            ClientConfig::default()
-        }
+    // Get file extension for content type detection
+    let file_ext = match filename.as_ref().and_then(|name| {
+        Path::new(name).extension().and_then(|ext| ext.to_str()).map(|s| s.to_lowercase())
+    }) {
+        Some(ext) => ext,
+        None => "jpg".to_string(),  // Default extension
     };
 
-    // Apply authentication to the client config
-    let client_config = match client_config.with_auth().await {
+    // Create the GCS client using proper authentication
+    let client_config = match ClientConfig::default().with_auth().await {
         Ok(config) => config,
         Err(e) => {
             eprintln!("Error setting up GCS authentication: {}", e);
-            return HttpResponse::InternalServerError().body(format!("Failed to authenticate with Google Cloud Storage: {}", e));
+            return HttpResponse::InternalServerError().body(format!("Failed to initialize GCS client: {}", e));
         }
     };
 
-    // Now create the client with the authenticated config
-    let gcs_client = Client::new(client_config);
+    let client = GcsClient::new(client_config);
+    
+    // Get bucket name from env
+    let bucket_name = match std::env::var("GCS_BUCKET_NAME") {
+        Ok(name) => name,
+        Err(_) => return HttpResponse::InternalServerError().body("GCS_BUCKET_NAME not set in environment"),
+    };
+    
+    // Generate a unique object name
+    let object_name = format!("{}/{}.{}", image_type, Uuid::new_v4(), file_ext);
+    
+    // Store the content type in a new variable to avoid ownership issues
+    let content_type_str = match &content_type {
+        Some(ct) => ct.clone(),
+        None => {
+            match file_ext.as_str() {
+                "jpg" | "jpeg" => "image/jpeg".to_string(),
+                "png" => "image/png".to_string(),
+                "gif" => "image/gif".to_string(),
+                _ => "application/octet-stream".to_string(),
+            }
+        }
+    };
 
-    // Get bucket name from environment variable
-    let bucket_name = std::env::var("GCS_BUCKET_NAME").unwrap_or_else(|_| "vet-text-1".to_string());
+    // Update the upload call to use the correct API
+    let upload_request = google_cloud_storage::http::objects::upload::UploadObjectRequest {
+        bucket: bucket_name.clone(),
+        ..Default::default()
+    };
 
-    // Create upload request
-    let mut upload_request = UploadObjectRequest::default();
-    upload_request.bucket = bucket_name.clone();
-
-    // Define object path based on image type and user ID
-    let object_name = format!(
-        "{}/{}/{}.{}",
-        image_type,
-        user_id,
-        image_id,
-        file_ext
+    let upload_type = google_cloud_storage::http::objects::upload::UploadType::Simple(
+        google_cloud_storage::http::objects::upload::Media::new(content_type_str.clone())
     );
 
-    // Set content type if available
-    let content_type_str = content_type.clone().unwrap_or_else(|| {
-        match file_ext {
-            "jpg" | "jpeg" => "image/jpeg".to_string(),
-            "png" => "image/png".to_string(),
-            "gif" => "image/gif".to_string(),
-            _ => "application/octet-stream".to_string(),
-        }
-    });
-
-    // Create a Media object for the content type
-    let media = Media::new(content_type_str);
-
-    // Upload the file to GCS
-    println!("Attempting to upload file to GCS bucket: {}, path: {}", bucket_name, object_name);
-
-    // Debug: print service account info before upload attempt
-    let debug_cmd = Command::new("curl")
-        .arg("-s")
-        .arg("http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email")
-        .arg("-H")
-        .arg("Metadata-Flavor: Google")
-        .output();
-
-    match debug_cmd {
-        Ok(output) => {
-            let email = String::from_utf8_lossy(&output.stdout);
-            println!("Using service account: {}", email);
-            
-            // Also check if we can list the bucket to verify permissions
-            println!("Checking if we can list the bucket...");
-            let list_cmd = Command::new("gsutil")
-                .arg("ls")
-                .arg(format!("gs://{}", bucket_name))
-                .output();
-                
-            match list_cmd {
-                Ok(list_output) => {
-                    if list_output.status.success() {
-                        println!("Successfully listed bucket contents");
-                    } else {
-                        println!("Failed to list bucket: {}", 
-                            String::from_utf8_lossy(&list_output.stderr));
-                    }
-                },
-                Err(e) => println!("Error running gsutil: {}", e)
-            }
-        },
-        Err(e) => println!("Failed to get service account: {}", e)
-    };
-
-    let upload_result = gcs_client.upload_object(
-        &upload_request, 
-        object_name.clone(),  // Object name as a separate parameter
-        &UploadType::Simple(media)
-    ).await;
+    // Then use the client to upload...
+    let upload_result = client
+        .upload_object(
+            &upload_request, 
+            image_bytes,
+            &upload_type
+        )
+        .await;
 
     // Debug result
     match &upload_result {
@@ -902,9 +812,6 @@ async fn upload_image(
             eprintln!("- Object path: '{}'", object_name);
         }
     }
-    
-    // Clean up the temporary file
-    fs::remove_file(&temp_path).ok();
     
     let image_url = match upload_result {
         Ok(_) => {
@@ -1021,15 +928,6 @@ async fn update_pet(
             return HttpResponse::NotFound().body("Pet not found or does not belong to you");
         }
 
-        // Convert NaiveDate to DateTime<Utc> if provided
-        let birthday_datetime = data.birthday.map(|naive_date| {
-            // Convert NaiveDate to DateTime<Utc>
-            chrono::DateTime::<Utc>::from_utc(
-                naive_date.and_hms_opt(0, 0, 0).unwrap_or_default(),
-                Utc
-            )
-        });
-
         // Update the pet
         match sqlx::query_as!(
             Pet,
@@ -1045,7 +943,7 @@ async fn update_pet(
             data.name,
             data.breed,
             data.sex,
-            birthday_datetime,
+            data.birthday,
             data.pet_image_url,
             pet_id,
             user_id
@@ -1064,14 +962,6 @@ async fn update_pet(
             return HttpResponse::BadRequest().body("Name, breed, and sex are required when creating a new pet");
         }
 
-        // Convert NaiveDate to DateTime<Utc> if provided
-        let birthday_datetime = data.birthday.map(|naive_date| {
-            chrono::DateTime::<Utc>::from_utc(
-                naive_date.and_hms_opt(0, 0, 0).unwrap_or_default(),
-                Utc
-            )
-        });
-
         // Create a new pet
         match sqlx::query_as!(
             Pet,
@@ -1082,7 +972,7 @@ async fn update_pet(
             data.name,
             data.breed,
             data.sex,
-            birthday_datetime,
+            data.birthday,
             data.pet_image_url
         )
         .fetch_one(&**pool)

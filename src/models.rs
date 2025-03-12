@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use chrono::{DateTime, Utc};
 use sqlx::FromRow;
-use chrono::naive::NaiveDate;
 
 #[derive(FromRow, Debug, Serialize, Deserialize)]
 pub struct User {
@@ -216,7 +215,7 @@ pub struct UpdatePetData {
     pub name: Option<String>,
     pub breed: Option<String>,
     pub sex: Option<String>,
-    pub birthday: Option<NaiveDate>,
+    pub birthday: Option<DateTime<Utc>>,
     pub pet_image_url: Option<String>,
 }
 
