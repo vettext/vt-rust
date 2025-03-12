@@ -94,6 +94,7 @@ The system enforces role-based access control:
          "params": {
            "id": "message-uuid",
            "conversation_id": "conversation-uuid",
+           "sender_id": "user-uuid",
            "content": "Your message text",
            "timestamp": "2023-01-01T12:00:00Z"
          }
@@ -215,7 +216,8 @@ The system enforces role-based access control:
        "sender_id": "user-uuid",
        "event": "unsubscribe_conversation",
        "params": {
-         "conversation_id": "conversation-uuid"
+         "conversation_id": "conversation-uuid",
+         "status": "success"
        }
      }
      ```

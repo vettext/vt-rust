@@ -141,6 +141,7 @@ pub struct Conversation {
 pub struct Message {
     pub id: Uuid,
     pub conversation_id: Uuid,
+    pub sender_id: Uuid,
     pub content: String,
     #[serde(with = "chrono::serde::ts_milliseconds")]
     pub timestamp: DateTime<Utc>,

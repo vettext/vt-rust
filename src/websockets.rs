@@ -13,6 +13,7 @@ use actix_web::web;
 use actix::fut::wrap_future;
 use chrono::Utc;
 use std::collections::HashSet;
+use serde_json::json;
 
 // -----------------------
 // Define Messages
@@ -409,14 +410,21 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
 
                                         match result {
                                             Ok(message) => {
-                                                addr.do_send(BroadcastToConversation {
-                                                    message: WsMessage {
-                                                        sender_id: Uuid::nil(),
-                                                        event: "message_sent".to_string(),
-                                                        params: serde_json::json!(message),
-                                                    },
-                                                    conversation_id,
+                                                let message_payload = json!({
+                                                    "event": "message_sent",
+                                                    "params": {
+                                                        "id": message.id,
+                                                        "conversation_id": message.conversation_id,
+                                                        "sender_id": message.sender_id,
+                                                        "content": message.content,
+                                                        "timestamp": message.timestamp
+                                                    }
                                                 });
+                                                addr.do_send(BroadcastMessage(WsMessage {
+                                                    sender_id: Uuid::nil(),
+                                                    event: "message_sent".to_string(),
+                                                    params: message_payload,
+                                                }));
                                             },
                                             Err(e) => {
                                                 println!("Error sending message: {:?}", e);
@@ -597,16 +605,18 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
                                             &db_pool, conversation_id, page, limit
                                         ).await {
                                             Ok((messages, total_count, has_more)) => {
-                                                let response = ConversationHistoryResponse {
-                                                    messages,
-                                                    total_count,
-                                                    has_more,
-                                                };
-                                                
+                                                let history_response = json!({
+                                                    "event": "conversation_history_response",
+                                                    "params": {
+                                                        "messages": messages,
+                                                        "total_count": total_count,
+                                                        "has_more": has_more
+                                                    }
+                                                });
                                                 addr.do_send(BroadcastMessage(WsMessage {
                                                     sender_id: Uuid::nil(),
                                                     event: "conversation_history_response".to_string(),
-                                                    params: serde_json::to_value(response).unwrap_or(serde_json::Value::Null),
+                                                    params: history_response,
                                                 }));
                                             },
                                             Err(e) => {
