@@ -270,8 +270,13 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
             Ok(ws::Message::Text(text)) => {
                 println!("Received message from user {}: {}", self.id, text);
                 
+                // Log the raw incoming message for debugging
+                println!("Raw WebSocket message: {}", text);
+                
                 match serde_json::from_str::<WsMessage>(&text) {
                     Ok(ws_message) => {
+                        println!("Successfully parsed WebSocket message: {:?}", ws_message);
+                        // Process based on event type
                         match ws_message.event.as_str() {
                             "conversations" => {
                                 let db_pool = self.db_pool.clone();
@@ -768,7 +773,30 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
                         }
                     },
                     Err(e) => {
-                        println!("Failed to parse message: {:?}", e);
+                        // Detailed error logging
+                        println!("Failed to parse WebSocket message: {}", e);
+                        println!("Message causing error: {}", text);
+                        
+                        // Try to determine what part is failing
+                        if let Ok(raw_json) = serde_json::from_str::<serde_json::Value>(&text) {
+                            println!("JSON is valid, but doesn't match WsMessage structure");
+                            println!("Expected structure: sender_id (UUID), event (String), params (Object)");
+                            println!("Received structure: {:?}", raw_json);
+                            
+                            // Check for specific missing fields
+                            if !raw_json.get("sender_id").is_some() {
+                                println!("Missing 'sender_id' field");
+                            }
+                            if !raw_json.get("event").is_some() {
+                                println!("Missing 'event' field");
+                            }
+                            if !raw_json.get("params").is_some() {
+                                println!("Missing 'params' field");
+                            }
+                        } else {
+                            println!("JSON is invalid or malformed");
+                        }
+                        
                         ctx.text(format!("Invalid message format: {}", e));
                     }
                 }
