@@ -57,7 +57,7 @@ async fn test_create_and_update_pet() -> Result<(), Box<dyn StdError>> {
         "name": "Test Pet",
         "breed": "Test Breed",
         "sex": "F",
-        "birthday": "2020-01-01T00:00:00Z"
+        "birthday": 1577836800000_i64  // Add _i64 suffix to indicate this is a 64-bit integer
     });
     
     // Send the POST request to create pet
@@ -94,7 +94,7 @@ async fn test_create_and_update_pet() -> Result<(), Box<dyn StdError>> {
         "name": "Updated Test Pet",
         "breed": "Updated Test Breed",
         "sex": "M",
-        "birthday": "2020-05-15T00:00:00Z"
+        "birthday": 1589500800000_i64  // Add _i64 suffix to indicate this is a 64-bit integer
     });
     
     // Send the POST request to update pet

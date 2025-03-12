@@ -253,7 +253,7 @@ Create a new pet:
   "name": "Max",
   "breed": "Golden Retriever",
   "sex": "M",
-  "birthday": "2020-01-15",
+  "birthday": 1579046400000,
   "pet_image_url": "https://example.com/pet_image.jpg"
 }
 ```
@@ -419,3 +419,62 @@ The WebSocket API supports the following event types:
 4. Use the `page` and `limit` parameters for pagination when fetching conversation history.
 5. When uploading images, ensure they are in a supported format (jpg, jpeg, png, gif).
 6. Use the image URLs returned from the `/upload-image` endpoint to update profile or pet images. 
+
+## API DateTime Format
+
+All datetime fields in requests and responses use Unix millisecond timestamps (milliseconds since the Unix epoch - January 1, 1970 00:00:00 UTC).
+
+Examples:
+- January 1, 2023 00:00:00 UTC: `1672531200000`
+- June 15, 2023 12:30:45 UTC: `1686833445000`
+
+## Pet Endpoints
+
+### Create/Update Pet
+
+POST `/pet`
+
+**Request Body:**
+```json
+{
+  "name": "Fluffy",
+  "breed": "Persian",
+  "sex": "F",
+  "birthday": 1577836800000,  // January 1, 2020 00:00:00 UTC
+  "pet_image_url": "https://example.com/images/fluffy.jpg"
+}
+```
+
+**Response:**
+```json
+{
+  "message": "Pet created successfully",
+  "pet": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "user_id": "550e8400-e29b-41d4-a716-446655440001",
+    "name": "Fluffy",
+    "breed": "Persian",
+    "sex": "F", 
+    "birthday": 1577836800000,  // January 1, 2020 00:00:00 UTC
+    "pet_image_url": "https://example.com/images/fluffy.jpg"
+  }
+}
+```
+
+## Conversation Messages
+
+Messages in conversation history use millisecond timestamps:
+
+```json
+{
+  "messages": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440002",
+      "conversation_id": "550e8400-e29b-41d4-a716-446655440003",
+      "sender_id": "550e8400-e29b-41d4-a716-446655440001",
+      "content": "Hello, how can I help with your pet?",
+      "timestamp": 1686833445000  // June 15, 2023 12:30:45 UTC
+    }
+  ]
+}
+```

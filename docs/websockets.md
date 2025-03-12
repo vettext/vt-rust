@@ -65,7 +65,7 @@ The system enforces role-based access control:
            "client": "client-uuid",
            "pet": "pet-uuid",
            "last_message": "Last message content",
-           "last_updated_timestamp": "2023-01-01T12:00:00Z"
+           "last_updated_timestamp": 1672574400000
          }
        ]
      }
@@ -96,7 +96,7 @@ The system enforces role-based access control:
            "conversation_id": "conversation-uuid",
            "sender_id": "user-uuid",
            "content": "Your message text",
-           "timestamp": "2023-01-01T12:00:00Z"
+           "timestamp": 1672574400000
          }
        }
        ```
@@ -128,7 +128,7 @@ The system enforces role-based access control:
            "client": "client-uuid",
            "pet": "pet-uuid",
            "last_message": "",
-           "last_updated_timestamp": "2023-01-01T12:00:00Z"
+           "last_updated_timestamp": 1672574400000
          }
        }
        ```
@@ -143,7 +143,7 @@ The system enforces role-based access control:
            "client": "client-uuid",
            "pet": "pet-uuid",
            "last_message": "",
-           "last_updated_timestamp": "2023-01-01T12:00:00Z"
+           "last_updated_timestamp": 1672574400000
          }
        }
        ```
@@ -173,8 +173,9 @@ The system enforces role-based access control:
            {
              "id": "message-uuid",
              "conversation_id": "conversation-uuid",
+             "sender_id": "user-uuid",
              "content": "Message content",
-             "timestamp": "2023-01-01T12:00:00Z"
+             "timestamp": 1672574400000
            }
          ],
          "total_count": 45,

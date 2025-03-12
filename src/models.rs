@@ -28,8 +28,8 @@ pub struct Pet {
     pub name: String,
     pub breed: String,
     pub sex: String,
-    #[serde(with = "chrono::serde::ts_milliseconds")]
-    pub birthday: DateTime<Utc>,
+    #[serde(with = "chrono::serde::ts_milliseconds_option")]
+    pub birthday: Option<DateTime<Utc>>,
     pub pet_image_url: Option<String>,
     pub color: Option<String>,
     pub species: Option<String>,
@@ -216,6 +216,7 @@ pub struct UpdatePetData {
     pub name: Option<String>,
     pub breed: Option<String>,
     pub sex: Option<String>,
+    #[serde(with = "chrono::serde::ts_milliseconds_option")]
     pub birthday: Option<DateTime<Utc>>,
     pub pet_image_url: Option<String>,
 }

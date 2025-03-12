@@ -270,8 +270,9 @@ paths:
                   type: string
                   description: Required when creating a new pet (M or F)
                 birthday:
-                  type: string
-                  format: date
+                  type: integer
+                  format: int64
+                  description: Pet's birthday in milliseconds since epoch
                 pet_image_url:
                   type: string
       responses:
@@ -470,11 +471,13 @@ components:
         verified:
           type: boolean
         created_at:
-          type: string
-          format: date-time
+          type: integer
+          format: int64
+          description: Creation timestamp in milliseconds since epoch
         updated_at:
-          type: string
-          format: date-time
+          type: integer
+          format: int64
+          description: Last update timestamp in milliseconds since epoch
 
     Pet:
       type: object
@@ -492,8 +495,9 @@ components:
         sex:
           type: string
         birthday:
-          type: string
-          format: date-time
+          type: integer
+          format: int64
+          description: Pet's birthday in milliseconds since epoch
         pet_image_url:
           type: string
           nullable: true
@@ -710,6 +714,10 @@ components:
           format: uuid
         last_message:
           type
+        last_updated_timestamp:
+          type: integer
+          format: int64
+          description: Last update timestamp in milliseconds since epoch
 
     SignedDataDeleteUserData:
       type: object
@@ -751,7 +759,9 @@ components:
         created_at:
           type: integer
           format: int64
+          description: Creation timestamp in milliseconds since epoch
         updated_at:
           type: integer
           format: int64
+          description: Last update timestamp in milliseconds since epoch
 
