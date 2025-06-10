@@ -34,7 +34,7 @@ pub struct Pet {
     pub color: Option<String>,
     pub species: Option<String>,
     pub spayed_neutered: Option<bool>,
-    pub weight: Option<i32>,
+    pub weight: Option<i32>
 }
 
 #[derive(FromRow, Debug)]
@@ -219,6 +219,10 @@ pub struct UpdatePetData {
     #[serde(with = "chrono::serde::ts_milliseconds_option")]
     pub birthday: Option<DateTime<Utc>>,
     pub pet_image_url: Option<String>,
+    pub color: Option<String>,
+    pub species: Option<String>,
+    pub spayed_neutered: Option<bool>,
+    pub weight: Option<i32>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

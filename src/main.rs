@@ -2,13 +2,17 @@ use actix::prelude::*; // Import Actix prelude for common traits and functionali
 use actix_web::{post, web, App, HttpRequest, HttpResponse, HttpServer, Responder, get, delete};
 use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
-use chrono::{Utc};
+use chrono::{Utc, DateTime};
 use uuid::Uuid;
 use actix_multipart::Multipart;
 use futures::{StreamExt, TryStreamExt};
 use std::path::Path;
 use google_cloud_default::WithAuthExt;
 use google_cloud_storage::client::{Client as GcsClient, ClientConfig};
+use sqlx::FromRow;
+use serde::Serialize;
+use serde::Deserialize;
+use std::collections::HashMap;
 
 mod utils;
 mod models;
@@ -22,10 +26,42 @@ use crate::utils::{
 };
 use crate::models::{
     SignedData, RegisterData, RequestVerificationCodeData, LoginData,
-    RefreshData, LogoutData, RefreshToken, UpdateProfileData, ProfilesQuery, User, DeleteUserData,
+    RefreshData, LogoutData, RefreshToken, UpdateProfileData, ProfilesQuery, DeleteUserData,
     Pet, GetImagesQuery, UploadImageQuery, UpdatePetData, DeletePetData
 };
 use crate::websockets::websocket_route; // Import the WebSocket route handler
+
+#[derive(FromRow, Debug, Serialize, Deserialize)]
+struct UserWithPet {
+    // User fields
+    id: Option<Uuid>,
+    phone_number: Option<String>,
+    public_key: Option<String>,
+    scope: Option<String>,
+    first_name: Option<String>,
+    last_name: Option<String>,
+    email: Option<String>,
+    address: Option<String>,
+    profile_image_url: Option<String>,
+    verified: Option<bool>,
+    #[serde(with = "chrono::serde::ts_milliseconds_option")]
+    created_at: Option<DateTime<Utc>>,
+    #[serde(with = "chrono::serde::ts_milliseconds_option")]
+    updated_at: Option<DateTime<Utc>>,
+    // Pet fields
+    pet_id: Option<Uuid>,
+    pet_user_id: Option<Uuid>,
+    pet_name: Option<String>,
+    pet_breed: Option<String>,
+    pet_sex: Option<String>,
+    #[serde(with = "chrono::serde::ts_milliseconds_option")]
+    pet_birthday: Option<DateTime<Utc>>,
+    pet_image_url: Option<String>,
+    pet_color: Option<String>,
+    pet_species: Option<String>,
+    pet_spayed_neutered: Option<bool>,
+    pet_weight: Option<i32>,
+}
 
 #[post("/register")]
 async fn register(
@@ -415,24 +451,56 @@ async fn get_profiles(
 
     // Execute the query based on the authenticated user's scope
     let rows = if claims.get_scope() == "provider" {
-        sqlx::query_as::<_, User>(
-            "SELECT id, phone_number, public_key, scope, first_name, last_name, email, address, profile_image_url, verified, created_at, updated_at FROM users WHERE id = ANY($1)"
+        sqlx::query_as!(
+            UserWithPet,
+            r#"
+            SELECT 
+                u.id, u.phone_number, u.public_key, u.scope, 
+                u.first_name, u.last_name, u.email, u.address, 
+                u.profile_image_url, u.verified, u.created_at, u.updated_at,
+                p.id as "pet_id?", p.user_id as "pet_user_id?", 
+                p.name as "pet_name?", p.breed as "pet_breed?",
+                p.sex as "pet_sex?", p.birthday as "pet_birthday?", 
+                p.pet_image_url as "pet_image_url?",
+                p.color as "pet_color?", p.species as "pet_species?", 
+                p.spayed_neutered as "pet_spayed_neutered?",
+                p.weight as "pet_weight?"
+            FROM users u
+            LEFT JOIN pets p ON u.id = p.user_id
+            WHERE u.id = ANY($1)
+            "#,
+            &user_ids
         )
-        .bind(&user_ids)
         .fetch_all(&**pool)
         .await
     } else {
-        sqlx::query_as::<_, User>(
-            "SELECT id, phone_number, public_key, scope, first_name, last_name, email, address, profile_image_url, verified, created_at, updated_at FROM users WHERE (id = ANY($1) AND (scope = 'provider' OR id = $2))"
+        sqlx::query_as!(
+            UserWithPet,
+            r#"
+            SELECT 
+                u.id, u.phone_number, u.public_key, u.scope, 
+                u.first_name, u.last_name, u.email, u.address, 
+                u.profile_image_url, u.verified, u.created_at, u.updated_at,
+                p.id as "pet_id?", p.user_id as "pet_user_id?", 
+                p.name as "pet_name?", p.breed as "pet_breed?",
+                p.sex as "pet_sex?", p.birthday as "pet_birthday?", 
+                p.pet_image_url as "pet_image_url?",
+                p.color as "pet_color?", p.species as "pet_species?", 
+                p.spayed_neutered as "pet_spayed_neutered?",
+                p.weight as "pet_weight?"
+            FROM users u
+            LEFT JOIN pets p ON u.id = p.user_id
+            WHERE (u.id = ANY($1) AND (u.scope = 'provider' OR u.id = $2))
+            "#,
+            &user_ids,
+            Uuid::parse_str(claims.get_sub()).unwrap()
         )
-        .bind(&user_ids)
-        .bind(Uuid::parse_str(claims.get_sub()).unwrap())
         .fetch_all(&**pool)
         .await
     };
 
     match rows {
-        Ok(users) => HttpResponse::Ok().json(users),
+        Ok(rows) => HttpResponse::Ok().json(rows),
         Err(e) => HttpResponse::InternalServerError().body(format!("Database error: {}", e)),
     }
 }
@@ -537,7 +605,7 @@ async fn update_profile(
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                 RETURNING id, user_id, name, breed, sex, birthday, pet_image_url, color, species, spayed_neutered, weight
                 "#,
-                    user_id,
+                user_id,
                 pet_data.name.clone().unwrap_or_else(|| "".to_string()),
                 pet_data.breed.clone().unwrap_or_else(|| "".to_string()),
                 pet_data.sex.clone().unwrap_or_else(|| "".to_string()),
@@ -549,7 +617,7 @@ async fn update_profile(
                 pet_data.weight
             )
             .fetch_one(&mut *tx)
-                .await
+            .await
         };
 
         match pet_result {
@@ -931,20 +999,31 @@ async fn update_pet(
         // Update the pet
         match sqlx::query_as!(
             Pet,
-            "UPDATE pets
+            r#"
+            UPDATE pets
             SET 
                 name = COALESCE($1, name),
                 breed = COALESCE($2, breed),
                 sex = COALESCE($3, sex),
                 birthday = COALESCE($4, birthday),
-                pet_image_url = COALESCE($5, pet_image_url)
-            WHERE id = $6 AND user_id = $7
-            RETURNING id, user_id, name, breed, sex, birthday, pet_image_url, color, species, spayed_neutered, weight",
+                pet_image_url = COALESCE($5, pet_image_url),
+                color = COALESCE($6, color),
+                species = COALESCE($7, species),
+                spayed_neutered = COALESCE($8, spayed_neutered),
+                weight = COALESCE($9, weight),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = $10 AND user_id = $11
+            RETURNING id, user_id, name, breed, sex, birthday, pet_image_url, color, species, spayed_neutered, weight
+            "#,
             data.name,
             data.breed,
             data.sex,
             data.birthday,
             data.pet_image_url,
+            data.color,
+            data.species,
+            data.spayed_neutered,
+            data.weight,
             pet_id,
             user_id
         )
@@ -958,22 +1037,28 @@ async fn update_pet(
         }
     } else {
         // CREATING: Validate required fields for new pet
-        if data.name.is_none() || data.breed.is_none() || data.sex.is_none() {
-            return HttpResponse::BadRequest().body("Name, breed, and sex are required when creating a new pet");
+        if data.name.is_none() || data.breed.is_none() || data.sex.is_none() || data.birthday.is_none() {
+            return HttpResponse::BadRequest().body("Name, breed, sex, and birthday are required when creating a new pet");
         }
 
         // Create a new pet
         match sqlx::query_as!(
             Pet,
-            "INSERT INTO pets (user_id, name, breed, sex, birthday, pet_image_url)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING id, user_id, name, breed, sex, birthday, pet_image_url, color, species, spayed_neutered, weight",
+            r#"
+            INSERT INTO pets (user_id, name, breed, sex, birthday, pet_image_url, color, species, spayed_neutered, weight)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            RETURNING id, user_id, name, breed, sex, birthday, pet_image_url, color, species, spayed_neutered, weight
+            "#,
             user_id,
             data.name,
             data.breed,
             data.sex,
             data.birthday,
-            data.pet_image_url
+            data.pet_image_url,
+            data.color,
+            data.species,
+            data.spayed_neutered,
+            data.weight
         )
         .fetch_one(&**pool)
         .await {
