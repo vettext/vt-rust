@@ -1,50 +1,44 @@
-use actix::prelude::*; // Brings in Actor, StreamHandler, Handler, Message, etc.
-use actix::WrapFuture; // Needed for `into_actor`
-use actix::ActorContext; // Needed for `ctx.stop()`
-use actix_web::{HttpRequest, Responder, get};
-use actix_web_actors::ws;
-use serde::{Serialize, Deserialize};
-use std::collections::HashMap;
-use uuid::Uuid;
-use crate::models::{WsMessage, WsEvent, ConversationHistoryResponse};
-use crate::services::conversations::ConversationService;
-use sqlx::PgPool;
-use actix_web::web;
+use actix::{Actor, Context, Handler, Recipient, StreamHandler, WrapFuture, Message, AsyncContext, ActorContext, Addr, Running, ActorFutureExt, ContextFutureSpawner};
 use actix::fut::wrap_future;
+use actix_web::{web, HttpRequest, HttpResponse, get};
+use actix_web_actors::ws;
+use serde_json::{self, json};
+use sqlx::PgPool;
+use std::collections::{HashMap, HashSet};
+use uuid::Uuid;
 use chrono::Utc;
-use std::collections::HashSet;
-use serde_json::json;
+use crate::models::{WsMessage, WsEvent};
+use crate::services::conversations::ConversationService;
 
 // -----------------------
-// Define Messages
+// Define Message Types
 // -----------------------
 
-#[derive(Message, Serialize, Deserialize, Debug, Clone)]
+#[derive(Message)]
 #[rtype(result = "()")]
 pub struct BroadcastMessage(pub WsMessage);
 
-#[derive(Message, Debug, Clone)]
+#[derive(Message)]
 #[rtype(result = "()")]
 pub struct BroadcastToConversation {
     pub message: WsMessage,
     pub conversation_id: Uuid,
 }
 
-#[derive(Message, Debug)]
+#[derive(Message)]
 #[rtype(result = "()")]
 pub struct SubscribeToConversation {
     pub user_id: Uuid,
     pub conversation_id: Uuid,
 }
 
-#[derive(Message, Debug)]
+#[derive(Message)]
 #[rtype(result = "()")]
 pub struct UnsubscribeFromConversation {
     pub user_id: Uuid,
     pub conversation_id: Uuid,
 }
 
-// Messages for connecting and disconnecting
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct Connect {
@@ -133,17 +127,27 @@ impl Handler<Disconnect> for WsServer {
     type Result = ();
 
     fn handle(&mut self, msg: Disconnect, _: &mut Context<Self>) {
-        self.sessions.remove(&msg.id);
+        let user_id = msg.id;
+        
+        // Remove user from sessions
+        self.sessions.remove(&user_id);
         
         // Remove user from all conversation subscriptions
-        for subscribers in self.conversation_subscriptions.values_mut() {
-            subscribers.remove(&msg.id);
+        let mut empty_conversations = Vec::new();
+        for (conversation_id, subscribers) in &mut self.conversation_subscriptions {
+            subscribers.remove(&user_id);
+            if subscribers.is_empty() {
+                empty_conversations.push(*conversation_id);
+            }
         }
         
         // Clean up empty conversation subscriptions
-        self.conversation_subscriptions.retain(|_, subscribers| !subscribers.is_empty());
+        for conversation_id in &empty_conversations {
+            self.conversation_subscriptions.remove(conversation_id);
+            println!("Removed empty conversation subscription: {}", conversation_id);
+        }
         
-        println!("User {} disconnected", msg.id);
+        println!("User {} disconnected and cleaned up from {} conversations", user_id, empty_conversations.len());
     }
 }
 
@@ -844,8 +848,36 @@ pub async fn websocket_route(
     stream: actix_web::web::Payload,
     srv: actix_web::web::Data<Addr<WsServer>>,
     pool: web::Data<PgPool>,
-) -> impl Responder {
-    let user_id = Uuid::new_v4();
+) -> Result<HttpResponse, actix_web::Error> {
+    // Extract token from query parameters
+    let token = req.uri().query()
+        .and_then(|query| {
+            url::form_urlencoded::parse(query.as_bytes())
+                .find(|(key, _)| key == "token")
+                .map(|(_, value)| value.to_string())
+        });
+
+    let user_id = match token {
+        Some(token) => {
+            // Verify and decode the token
+            match crate::utils::verify_and_decode_token(&token) {
+                Ok(claims) => {
+                    match Uuid::parse_str(claims.get_sub()) {
+                        Ok(user_id) => user_id,
+                        Err(_) => {
+                            return Ok(HttpResponse::Unauthorized().body("Invalid user ID in token"));
+                        }
+                    }
+                }
+                Err(_) => {
+                    return Ok(HttpResponse::Unauthorized().body("Invalid token"));
+                }
+            }
+        }
+        None => {
+            return Ok(HttpResponse::Unauthorized().body("Missing token parameter"));
+        }
+    };
 
     ws::start(
         WsSession {

@@ -7,12 +7,11 @@ use uuid::Uuid;
 use actix_multipart::Multipart;
 use futures::{StreamExt, TryStreamExt};
 use std::path::Path;
-use google_cloud_default::WithAuthExt;
 use google_cloud_storage::client::{Client as GcsClient, ClientConfig};
 use sqlx::FromRow;
 use serde::Serialize;
 use serde::Deserialize;
-use std::collections::HashMap;
+use mime;
 
 mod utils;
 mod models;
@@ -743,7 +742,7 @@ async fn upload_image(
 
     // Validate image type
     let image_type = match &query.image_type {
-        Some(image_type) if ["profile", "pet"].contains(&image_type.as_str()) => image_type.clone(),
+        Some(image_type) if ["profile", "pet"].contains(&image_type.to_lowercase().as_str()) => image_type.to_lowercase(),
         Some(_) => return HttpResponse::BadRequest().body("Invalid image_type. Must be 'profile' or 'pet'"),
         None => return HttpResponse::BadRequest().body("Missing image_type parameter"),
     };
@@ -770,7 +769,11 @@ async fn upload_image(
                     
                     // Get the content type
                     if let Some(ct) = field.content_type() {
-                        content_type = Some(ct.to_string());
+                        if ct.type_() == mime::IMAGE {
+                            content_type = Some(ct.to_string());
+                        } else {
+                            return HttpResponse::BadRequest().body("File must be an image");
+                        }
                     }
                     
                     // Read the file data
@@ -861,7 +864,23 @@ async fn upload_image(
 
     // Debug result
     match &upload_result {
-        Ok(_) => println!("GCS upload successful for {}", object_name),
+        Ok(_) => {
+            println!("GCS upload successful for {}", object_name);
+            
+            // Make the object publicly readable
+            match client
+                .insert_object_access_control(
+                    &google_cloud_storage::http::object_access_controls::insert::InsertObjectAccessControlRequest {
+                        bucket: bucket_name.clone(),
+                        object: object_name.clone(),
+                        ..Default::default()
+                    }
+                )
+                .await {
+                    Ok(_) => println!("Object set to public access"),
+                    Err(e) => println!("Warning: Failed to set object as public: {}", e),
+                }
+        },
         Err(e) => {
             eprintln!("GCS upload error details:");
             eprintln!("- Error type: {:?}", e);
@@ -1084,7 +1103,7 @@ async fn delete_pet(
     };
 
     // First verify the pet belongs to the user
-    let pet = match sqlx::query!(
+    let _pet = match sqlx::query!(
         "SELECT id, name FROM pets WHERE id = $1 AND user_id = $2",
         data.id,
         user_id
