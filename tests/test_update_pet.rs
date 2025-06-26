@@ -57,7 +57,11 @@ async fn test_create_and_update_pet() -> Result<(), Box<dyn StdError>> {
         "name": "Test Pet",
         "breed": "Test Breed",
         "sex": "F",
-        "birthday": 1577836800000_i64  // Add _i64 suffix to indicate this is a 64-bit integer
+        "birthday": 1577836800000_i64,  // Add _i64 suffix to indicate this is a 64-bit integer
+        "color": "Brown",
+        "species": "Dog",
+        "spayed_neutered": true,
+        "weight": 30
     });
     
     // Send the POST request to create pet
@@ -94,7 +98,11 @@ async fn test_create_and_update_pet() -> Result<(), Box<dyn StdError>> {
         "name": "Updated Test Pet",
         "breed": "Updated Test Breed",
         "sex": "M",
-        "birthday": 1589500800000_i64  // Add _i64 suffix to indicate this is a 64-bit integer
+        "birthday": 1589500800000_i64,  // Add _i64 suffix to indicate this is a 64-bit integer
+        "color": "Black",
+        "species": "Cat",
+        "spayed_neutered": false,
+        "weight": 25
     });
     
     // Send the POST request to update pet
@@ -128,6 +136,10 @@ async fn test_create_and_update_pet() -> Result<(), Box<dyn StdError>> {
     assert_eq!(pet["name"], "Updated Test Pet", "Pet name wasn't updated correctly");
     assert_eq!(pet["breed"], "Updated Test Breed", "Pet breed wasn't updated correctly");
     assert_eq!(pet["sex"], "M", "Pet sex wasn't updated correctly");
+    assert_eq!(pet["color"], "Black", "Pet color wasn't updated correctly");
+    assert_eq!(pet["species"], "Cat", "Pet species wasn't updated correctly");
+    assert_eq!(pet["spayed_neutered"], false, "Pet spayed_neutered status wasn't updated correctly");
+    assert_eq!(pet["weight"], 25, "Pet weight wasn't updated correctly");
     
     // Step 3: Cleanup - delete the pet
     println!("Step 3: Cleaning up by deleting the pet...");

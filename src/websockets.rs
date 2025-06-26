@@ -335,7 +335,8 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
                                 ctx.spawn(wrap_future(future));
                             },
                             "message" => {
-                                if let Ok(WsEvent::Message { conversation_id, content }) = serde_json::from_value(ws_message.params) {
+                                let wrapped = json!({"event": ws_message.event, "data": ws_message.params});
+                                if let Ok(WsEvent::Message { conversation_id, content }) = serde_json::from_value(wrapped) {
                                     let db_pool = self.db_pool.clone();
                                     let sender_id = ws_message.sender_id;
                                     let addr = self.addr.clone();
@@ -444,7 +445,8 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
                                 }
                             },
                             "new_conversation" => {
-                                if let Ok(WsEvent::NewConversation { pet_id, providers }) = serde_json::from_value(ws_message.params) {
+                                let wrapped = json!({"event": ws_message.event, "data": ws_message.params});
+                                if let Ok(WsEvent::NewConversation { pet_id, providers }) = serde_json::from_value(wrapped) {
                                     let db_pool = self.db_pool.clone();
                                     let user_id = self.id;
                                     let addr = self.addr.clone();
@@ -535,7 +537,8 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
                                 }
                             },
                             "conversation_history" => {
-                                if let Ok(WsEvent::ConversationHistory { conversation_id, page, limit }) = serde_json::from_value(ws_message.params) {
+                                let wrapped = json!({"event": ws_message.event, "data": ws_message.params});
+                                if let Ok(WsEvent::ConversationHistory { conversation_id, page, limit }) = serde_json::from_value(wrapped) {
                                     let addr = ctx.address();
                                     let user_id = self.id;
                                     let server_addr = self.addr.clone();

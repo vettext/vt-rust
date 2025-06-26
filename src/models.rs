@@ -148,7 +148,7 @@ pub struct Message {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-#[serde(tag = "event", content = "data")]
+#[serde(tag = "event", content = "data", rename_all = "snake_case")]
 pub enum WsEvent {
     Conversations,
     Message {

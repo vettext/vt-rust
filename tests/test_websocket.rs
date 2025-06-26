@@ -19,8 +19,8 @@ async fn test_websocket_connection() -> Result<(), Box<dyn std::error::Error>> {
         "sender_id": test_user_id.to_string(),
         "event": "message",
         "params": {
-            "content": "Test message content",
-            "conversation_id": Uuid::new_v4().to_string()
+            "conversation_id": Uuid::new_v4().to_string(),
+            "content": "Test message content"
         }
     });
     
