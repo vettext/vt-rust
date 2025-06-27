@@ -13,6 +13,7 @@ use serde::Serialize;
 use serde::Deserialize;
 use mime;
 use google_cloud_storage::http::objects::upload::{UploadObjectRequest, UploadType, Media};
+use std::borrow::Cow;
 
 mod utils;
 mod models;
@@ -936,9 +937,17 @@ async fn upload_image(
     };
     println!("✅ Upload request prepared with bucket: {}", bucket_name);
 
-    let media = Media::new(object_name.clone());
+    // Media with object name and content type
+    let media = Media {
+        name: Cow::Owned(object_name.clone()),
+        content_type: Cow::Owned(content_type_str.clone()),
+        content_length: Some(image_bytes.len() as u64),
+    };
+    println!("✅ Media created with name: {} and content type: {}", object_name, content_type_str);
+
+    // Upload type
     let upload_type = UploadType::Simple(media);
-    println!("✅ Upload type created with object name: {}", object_name);
+    println!("✅ Upload type created");
 
     // Then use the client to upload
     println!("Starting GCS upload...");
