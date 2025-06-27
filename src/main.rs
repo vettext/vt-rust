@@ -12,6 +12,11 @@ use sqlx::FromRow;
 use serde::Serialize;
 use serde::Deserialize;
 use mime;
+use google_cloud_storage::http::objects::upload::{UploadObjectRequest, UploadType, Media};
+use google_cloud_storage::http::object_access_controls::insert::{
+    InsertObjectAccessControlRequest, ObjectAccessControlCreationConfig,
+};
+use google_cloud_storage::http::object_access_controls::ObjectACLRole;
 
 mod utils;
 mod models;
@@ -844,22 +849,17 @@ async fn upload_image(
     };
 
     // Update the upload call to use the correct API
-    let upload_request = google_cloud_storage::http::objects::upload::UploadObjectRequest {
+    let upload_request = UploadObjectRequest {
         bucket: bucket_name.clone(),
         ..Default::default()
     };
 
-    let upload_type = google_cloud_storage::http::objects::upload::UploadType::Simple(
-        google_cloud_storage::http::objects::upload::Media::new(content_type_str.clone())
-    );
+    let media = Media::new(object_name.clone());
+    let upload_type = UploadType::Simple(media);
 
-    // Then use the client to upload...
+    // Then use the client to upload
     let upload_result = client
-        .upload_object(
-            &upload_request, 
-            image_bytes,
-            &upload_type
-        )
+        .upload_object(&upload_request, image_bytes.clone(), &upload_type)
         .await;
 
     // Debug result
@@ -867,24 +867,24 @@ async fn upload_image(
         Ok(_) => {
             println!("GCS upload successful for {}", object_name);
             
-            // Make the object publicly readable
-            match client
-                .insert_object_access_control(
-                    &google_cloud_storage::http::object_access_controls::insert::InsertObjectAccessControlRequest {
-                        bucket: bucket_name.clone(),
-                        object: object_name.clone(),
-                        ..Default::default()
-                    }
-                )
-                .await {
-                    Ok(_) => println!("Object set to public access"),
-                    Err(e) => println!("Warning: Failed to set object as public: {}", e),
-                }
+            // Make the object publicly readable using the correct ACL method
+            let acl_request = InsertObjectAccessControlRequest {
+                bucket: bucket_name.clone(),
+                object: object_name.clone(),
+                acl: ObjectAccessControlCreationConfig {
+                    entity: "allUsers".to_string(),
+                    role: ObjectACLRole::READER,
+                },
+                ..Default::default()
+            };
+
+            match client.insert_object_access_control(&acl_request).await {
+                Ok(_) => println!("Object set to public access"),
+                Err(e) => println!("Warning: Failed to set object as public: {}", e),
+            }
         },
         Err(e) => {
-            eprintln!("GCS upload error details:");
-            eprintln!("- Error type: {:?}", e);
-            eprintln!("- Error display: {}", e);
+            eprintln!("Upload failed: {:?}", e);
             
             // Try to extract more info from the error
             let error_string = format!("{:?}", e);

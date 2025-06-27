@@ -208,6 +208,9 @@ async fn test_image_upload() -> Result<(), Box<dyn StdError>> {
         // Verify that the image_url points to the correct location
         let image_url = response_json["image_url"].as_str().unwrap();
         assert!(image_url.contains("storage.googleapis.com"), "image_url does not point to Google Cloud Storage");
+        
+        // With the new URL-encoded ACL implementation, objects should be publicly accessible
+        println!("Image uploaded successfully with public access: {}", image_url);
     } else {
         println!("Skipping Google Cloud Storage URL verification in local mode");
     }

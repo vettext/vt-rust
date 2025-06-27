@@ -28,6 +28,7 @@ google-cloud-default = "0.4.0"
 actix-multipart = "0.7.2"
 mime = "0.3"
 url = "2.3"
+percent-encoding = "2.3"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util", "macros", "rt-multi-thread"] }
