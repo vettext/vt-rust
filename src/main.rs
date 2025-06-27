@@ -13,10 +13,6 @@ use serde::Serialize;
 use serde::Deserialize;
 use mime;
 use google_cloud_storage::http::objects::upload::{UploadObjectRequest, UploadType, Media};
-use google_cloud_storage::http::object_access_controls::insert::{
-    InsertObjectAccessControlRequest, ObjectAccessControlCreationConfig,
-};
-use google_cloud_storage::http::object_access_controls::ObjectACLRole;
 
 mod utils;
 mod models;
@@ -737,127 +733,215 @@ async fn upload_image(
     query: web::Query<UploadImageQuery>,
     pool: web::Data<sqlx::PgPool>
 ) -> impl Responder {
+    println!("=== IMAGE UPLOAD START ===");
     println!("Upload image endpoint hit!");
 
     // Extract the user_id from the token
+    println!("Extracting user_id from token...");
     let user_id = match extract_user_id_from_token(&req) {
-        Ok(id) => id,
-        Err(e) => return HttpResponse::Unauthorized().body(e.to_string()),
+        Ok(id) => {
+            println!("✅ User ID extracted successfully: {}", id);
+            id
+        },
+        Err(e) => {
+            println!("❌ Failed to extract user_id from token: {}", e);
+            return HttpResponse::Unauthorized().body(e.to_string());
+        }
     };
 
     // Validate image type
+    println!("Validating image type from query parameters...");
     let image_type = match &query.image_type {
-        Some(image_type) if ["profile", "pet"].contains(&image_type.to_lowercase().as_str()) => image_type.to_lowercase(),
-        Some(_) => return HttpResponse::BadRequest().body("Invalid image_type. Must be 'profile' or 'pet'"),
-        None => return HttpResponse::BadRequest().body("Missing image_type parameter"),
+        Some(image_type) if ["profile", "pet"].contains(&image_type.to_lowercase().as_str()) => {
+            println!("✅ Image type validated: {}", image_type.to_lowercase());
+            image_type.to_lowercase()
+        },
+        Some(invalid_type) => {
+            println!("❌ Invalid image_type provided: {}", invalid_type);
+            return HttpResponse::BadRequest().body("Invalid image_type. Must be 'profile' or 'pet'");
+        },
+        None => {
+            println!("❌ Missing image_type parameter");
+            return HttpResponse::BadRequest().body("Missing image_type parameter");
+        }
     };
 
     // Generate a unique image ID
     let image_id = Uuid::new_v4();
+    println!("Generated image ID: {}", image_id);
     
     // Process the multipart form data
+    println!("Processing multipart form data...");
     let mut image_data: Option<Vec<u8>> = None;
     let mut filename: Option<String> = None;
     let mut content_type: Option<String> = None;
     
     while let Ok(Some(mut field)) = payload.try_next().await {
         let content_disposition = match field.content_disposition() {
-            Some(cd) => cd,
-            None => continue,
+            Some(cd) => {
+                println!("Found field with content disposition: {:?}", cd);
+                cd
+            },
+            None => {
+                println!("⚠️ Field without content disposition, skipping...");
+                continue;
+            }
         };
         
         if let Some(name) = content_disposition.get_name() {
+            println!("Processing field named: {}", name);
             if name == "file" {
+                println!("✅ Found 'file' field, processing...");
+                
                 // Get the filename
                 if let Some(fname) = content_disposition.get_filename() {
                     filename = Some(fname.to_string());
+                    println!("✅ Filename extracted: {}", fname);
                     
                     // Get the content type
                     if let Some(ct) = field.content_type() {
+                        println!("Content type from field: {}", ct);
                         if ct.type_() == mime::IMAGE {
                             content_type = Some(ct.to_string());
+                            println!("✅ Content type validated as image: {}", ct);
                         } else {
+                            println!("❌ Content type is not an image: {}", ct);
                             return HttpResponse::BadRequest().body("File must be an image");
                         }
+                    } else {
+                        println!("⚠️ No content type found in field, will infer from extension");
                     }
                     
                     // Read the file data
+                    println!("Reading file data...");
                     let mut data = Vec::new();
+                    let mut chunk_count = 0;
                     while let Some(chunk) = field.next().await {
                         match chunk {
                             Ok(bytes) => {
+                                chunk_count += 1;
                                 data.extend_from_slice(&bytes);
+                                if chunk_count % 10 == 0 {
+                                    println!("Read {} chunks, total size: {} bytes", chunk_count, data.len());
+                                }
                             },
                             Err(e) => {
+                                println!("❌ Error reading file chunk: {}", e);
                                 return HttpResponse::InternalServerError()
                                     .body(format!("Error reading file: {}", e));
                             }
                         }
                     }
                     
+                    println!("✅ File reading complete: {} chunks, {} bytes total", chunk_count, data.len());
                     image_data = Some(data);
+                } else {
+                    println!("❌ No filename found in content disposition");
+                    return HttpResponse::BadRequest().body("No filename provided");
                 }
+            } else {
+                println!("⚠️ Skipping non-file field: {}", name);
             }
+        } else {
+            println!("⚠️ Field without name, skipping...");
         }
     }
     
     // Check if we have the image data
+    println!("Checking if image data was received...");
     let image_bytes = match image_data {
-        Some(data) => data,
-        None => return HttpResponse::BadRequest().body("No image file provided"),
+        Some(data) => {
+            println!("✅ Image data received: {} bytes", data.len());
+            data
+        },
+        None => {
+            println!("❌ No image file provided in multipart data");
+            return HttpResponse::BadRequest().body("No image file provided");
+        }
     };
     
     // Get file extension for content type detection
+    println!("Determining file extension and content type...");
     let file_ext = match filename.as_ref().and_then(|name| {
         Path::new(name).extension().and_then(|ext| ext.to_str()).map(|s| s.to_lowercase())
     }) {
-        Some(ext) => ext,
-        None => "jpg".to_string(),  // Default extension
+        Some(ext) => {
+            println!("✅ File extension detected: {}", ext);
+            ext
+        },
+        None => {
+            println!("⚠️ No file extension found, defaulting to jpg");
+            "jpg".to_string()
+        }
     };
 
     // Create the GCS client using proper authentication
+    println!("Initializing GCS client...");
     let client_config = match ClientConfig::default().with_auth().await {
-        Ok(config) => config,
+        Ok(config) => {
+            println!("✅ GCS client configuration created successfully");
+            config
+        },
         Err(e) => {
+            println!("❌ Error setting up GCS authentication: {}", e);
             eprintln!("Error setting up GCS authentication: {}", e);
             return HttpResponse::InternalServerError().body(format!("Failed to initialize GCS client: {}", e));
         }
     };
 
     let client = GcsClient::new(client_config);
+    println!("✅ GCS client created successfully");
     
     // Get bucket name from env
+    println!("Getting bucket name from environment...");
     let bucket_name = match std::env::var("GCS_BUCKET_NAME") {
-        Ok(name) => name,
-        Err(_) => return HttpResponse::InternalServerError().body("GCS_BUCKET_NAME not set in environment"),
+        Ok(name) => {
+            println!("✅ Bucket name from env: {}", name);
+            name
+        },
+        Err(_) => {
+            println!("❌ GCS_BUCKET_NAME not set in environment");
+            return HttpResponse::InternalServerError().body("GCS_BUCKET_NAME not set in environment");
+        }
     };
     
     // Generate a unique object name
     let object_name = format!("{}/{}.{}", image_type, Uuid::new_v4(), file_ext);
+    println!("Generated object name: {}", object_name);
     
     // Store the content type in a new variable to avoid ownership issues
+    println!("Determining final content type...");
     let content_type_str = match &content_type {
-        Some(ct) => ct.clone(),
+        Some(ct) => {
+            println!("✅ Using content type from field: {}", ct);
+            ct.clone()
+        },
         None => {
-            match file_ext.as_str() {
+            let inferred_type = match file_ext.as_str() {
                 "jpg" | "jpeg" => "image/jpeg".to_string(),
                 "png" => "image/png".to_string(),
                 "gif" => "image/gif".to_string(),
                 _ => "application/octet-stream".to_string(),
-            }
+            };
+            println!("✅ Inferred content type: {}", inferred_type);
+            inferred_type
         }
     };
 
     // Update the upload call to use the correct API
+    println!("Preparing GCS upload request...");
     let upload_request = UploadObjectRequest {
         bucket: bucket_name.clone(),
         ..Default::default()
     };
+    println!("✅ Upload request prepared with bucket: {}", bucket_name);
 
     let media = Media::new(object_name.clone());
     let upload_type = UploadType::Simple(media);
+    println!("✅ Upload type created with object name: {}", object_name);
 
     // Then use the client to upload
+    println!("Starting GCS upload...");
     let upload_result = client
         .upload_object(&upload_request, image_bytes.clone(), &upload_type)
         .await;
@@ -865,37 +949,26 @@ async fn upload_image(
     // Debug result
     match &upload_result {
         Ok(_) => {
-            println!("GCS upload successful for {}", object_name);
-            
-            // Make the object publicly readable using the correct ACL method
-            let acl_request = InsertObjectAccessControlRequest {
-                bucket: bucket_name.clone(),
-                object: object_name.clone(),
-                acl: ObjectAccessControlCreationConfig {
-                    entity: "allUsers".to_string(),
-                    role: ObjectACLRole::READER,
-                },
-                ..Default::default()
-            };
-
-            match client.insert_object_access_control(&acl_request).await {
-                Ok(_) => println!("Object set to public access"),
-                Err(e) => println!("Warning: Failed to set object as public: {}", e),
-            }
+            println!("✅ GCS upload successful for {}", object_name);
         },
         Err(e) => {
+            println!("❌ Upload failed: {:?}", e);
             eprintln!("Upload failed: {:?}", e);
             
             // Try to extract more info from the error
             let error_string = format!("{:?}", e);
             if error_string.contains("status code: 403") {
+                println!("❌ This is a permissions error (403 Forbidden)");
                 eprintln!("- This is a permissions error (403 Forbidden)");
             } else if error_string.contains("status code: 404") {
+                println!("❌ This is a not found error (404 Not Found) - check bucket name");
                 eprintln!("- This is a not found error (404 Not Found) - check bucket name");
             }
             
             // Check bucket name case sensitivity
+            println!("❌ Using bucket name: '{}' (check case sensitivity)", bucket_name);
             eprintln!("- Using bucket name: '{}' (check case sensitivity)", bucket_name);
+            println!("❌ Object path: '{}'", object_name);
             eprintln!("- Object path: '{}'", object_name);
         }
     }
@@ -903,18 +976,22 @@ async fn upload_image(
     let image_url = match upload_result {
         Ok(_) => {
             // Generate a public URL for the uploaded image
-            format!(
+            let url = format!(
                 "https://storage.googleapis.com/{}/{}",
                 bucket_name,
                 object_name
-            )
+            );
+            println!("✅ Generated public URL: {}", url);
+            url
         },
         Err(e) => {
+            println!("❌ Failed to upload image to GCS: {}", e);
             return HttpResponse::InternalServerError().body(format!("Failed to upload image to GCS: {}", e));
         }
     };
     
     // Store the image metadata in the database
+    println!("Storing image metadata in database...");
     let result = sqlx::query!(
         "INSERT INTO images (id, user_id, filename, content_type, image_type, image_url) 
          VALUES ($1, $2, $3, $4, $5, $6)
@@ -930,12 +1007,18 @@ async fn upload_image(
     .await;
     
     match result {
-        Ok(_) => HttpResponse::Ok().json(json!({
-            "message": "Image uploaded successfully",
-            "image_id": image_id,
-            "image_url": image_url
-        })),
+        Ok(_) => {
+            println!("✅ Image metadata stored successfully in database");
+            println!("=== IMAGE UPLOAD SUCCESS ===");
+            HttpResponse::Ok().json(json!({
+                "message": "Image uploaded successfully",
+                "image_id": image_id,
+                "image_url": image_url
+            }))
+        },
         Err(e) => {
+            println!("❌ Failed to store image metadata in database: {}", e);
+            println!("=== IMAGE UPLOAD FAILED ===");
             HttpResponse::InternalServerError().body(format!("Failed to store image metadata: {}", e))
         }
     }
