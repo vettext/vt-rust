@@ -734,16 +734,11 @@ async fn upload_image(
     query: web::Query<UploadImageQuery>,
     pool: web::Data<sqlx::PgPool>
 ) -> impl Responder {
-    println!("=== IMAGE UPLOAD START ===");
     println!("Upload image endpoint hit!");
 
     // Extract the user_id from the token
-    println!("Extracting user_id from token...");
     let user_id = match extract_user_id_from_token(&req) {
-        Ok(id) => {
-            println!("✅ User ID extracted successfully: {}", id);
-            id
-        },
+        Ok(id) => id,
         Err(e) => {
             println!("❌ Failed to extract user_id from token: {}", e);
             return HttpResponse::Unauthorized().body(e.to_string());
@@ -751,12 +746,8 @@ async fn upload_image(
     };
 
     // Validate image type
-    println!("Validating image type from query parameters...");
     let image_type = match &query.image_type {
-        Some(image_type) if ["profile", "pet"].contains(&image_type.to_lowercase().as_str()) => {
-            println!("✅ Image type validated: {}", image_type.to_lowercase());
-            image_type.to_lowercase()
-        },
+        Some(image_type) if ["profile", "pet"].contains(&image_type.to_lowercase().as_str()) => image_type.to_lowercase(),
         Some(invalid_type) => {
             println!("❌ Invalid image_type provided: {}", invalid_type);
             return HttpResponse::BadRequest().body("Invalid image_type. Must be 'profile' or 'pet'");
@@ -769,130 +760,73 @@ async fn upload_image(
 
     // Generate a unique image ID
     let image_id = Uuid::new_v4();
-    println!("Generated image ID: {}", image_id);
     
     // Process the multipart form data
-    println!("Processing multipart form data...");
     let mut image_data: Option<Vec<u8>> = None;
     let mut filename: Option<String> = None;
     let mut content_type: Option<String> = None;
     
     while let Ok(Some(mut field)) = payload.try_next().await {
         let content_disposition = match field.content_disposition() {
-            Some(cd) => {
-                println!("Found field with content disposition: {:?}", cd);
-                cd
-            },
+            Some(cd) => cd,
             None => {
-                println!("⚠️ Field without content disposition, skipping...");
+                eprintln!("⚠️ Field without content disposition, skipping...");
                 continue;
             }
         };
         
         if let Some(name) = content_disposition.get_name() {
-            println!("Processing field named: {}", name);
             if name == "file" {
-                println!("✅ Found 'file' field, processing...");
-                
                 // Get the filename
                 if let Some(fname) = content_disposition.get_filename() {
                     filename = Some(fname.to_string());
-                    println!("✅ Filename extracted: {}", fname);
                     
                     // Get the content type
                     if let Some(ct) = field.content_type() {
-                        println!("Content type from field: {}", ct);
                         if ct.type_() == mime::IMAGE {
                             content_type = Some(ct.to_string());
-                            println!("✅ Content type validated as image: {}", ct);
                         } else {
-                            println!("❌ Content type is not an image: {}", ct);
+                            eprintln!("❌ Content type is not an image: {}", ct);
                             return HttpResponse::BadRequest().body("File must be an image");
                         }
                     } else {
-                        println!("⚠️ No content type found in field, will infer from extension");
+                        eprintln!("⚠️ No content type found in field, will infer from extension");
                     }
                     
                     // Read the file data
-                    println!("Reading file data...");
                     let mut data = Vec::new();
-                    let mut chunk_count = 0;
                     while let Some(chunk) = field.next().await {
                         match chunk {
-                            Ok(bytes) => {
-                                chunk_count += 1;
-                                data.extend_from_slice(&bytes);
-                                if chunk_count % 10 == 0 {
-                                    println!("Read {} chunks, total size: {} bytes", chunk_count, data.len());
-                                }
-                            },
+                            Ok(bytes) => data.extend_from_slice(&bytes),
                             Err(e) => {
-                                println!("❌ Error reading file chunk: {}", e);
-                                return HttpResponse::InternalServerError()
-                                    .body(format!("Error reading file: {}", e));
+                                eprintln!("❌ Error reading file chunk: {}", e);
+                                return HttpResponse::InternalServerError().body(format!("Error reading file: {}", e));
                             }
                         }
                     }
                     
-                    println!("✅ File reading complete: {} chunks, {} bytes total", chunk_count, data.len());
-                    
-                    // Debug: Check if the data looks like a valid image
-                    if data.len() < 1024 {
-                        println!("⚠️ WARNING: Image data is very small ({} bytes) - this might be corrupted!", data.len());
-                    }
-                    
-                    // Debug: Log first 32 bytes to check for corruption
-                    if data.len() >= 32 {
-                        let first_bytes: Vec<String> = data[..32].iter().map(|b| format!("{:02x}", b)).collect();
-                        println!("🔍 First 32 bytes: {}", first_bytes.join(" "));
-                        
-                        // Check for JPEG magic bytes
-                        if data.len() >= 2 && data[0] == 0xFF && data[1] == 0xD8 {
-                            println!("✅ JPEG magic bytes detected (FF D8)");
-                        } else {
-                            println!("❌ JPEG magic bytes NOT found - file may be corrupted!");
-                        }
-                    } else {
-                        println!("❌ Image data too small to check magic bytes");
-                    }
-                    
                     image_data = Some(data);
                 } else {
-                    println!("❌ No filename found in content disposition");
+                    eprintln!("❌ No filename found in content disposition");
                     return HttpResponse::BadRequest().body("No filename provided");
                 }
             } else {
-                println!("⚠️ Skipping non-file field: {}", name);
+                eprintln!("⚠️ Skipping non-file field: {}", name);
             }
         } else {
-            println!("⚠️ Field without name, skipping...");
+            eprintln!("⚠️ Field without name, skipping...");
         }
     }
-    
+
     // Check if we have the image data
-    println!("Checking if image data was received...");
     let image_bytes = match image_data {
         Some(data) => {
             println!("✅ Image data received: {} bytes", data.len());
             
-            // Final validation before upload
-            if data.len() < 1024 {
-                println!("⚠️ WARNING: Image data is very small ({} bytes) before upload!", data.len());
-            }
-            
-            // Check JPEG magic bytes one more time
-            if data.len() >= 2 {
-                if data[0] == 0xFF && data[1] == 0xD8 {
-                    println!("✅ JPEG magic bytes confirmed before upload");
-                } else {
-                    println!("❌ JPEG magic bytes missing before upload - first bytes: {:02x} {:02x}", data[0], data[1]);
-                }
-            }
-            
             data
         },
         None => {
-            println!("❌ No image file provided in multipart data");
+            eprintln!("❌ No image file provided in multipart data");
             return HttpResponse::BadRequest().body("No image file provided");
         }
     };
@@ -902,10 +836,7 @@ async fn upload_image(
     let file_ext = match filename.as_ref().and_then(|name| {
         Path::new(name).extension().and_then(|ext| ext.to_str()).map(|s| s.to_lowercase())
     }) {
-        Some(ext) => {
-            println!("✅ File extension detected: {}", ext);
-            ext
-        },
+        Some(ext) => ext,
         None => {
             println!("⚠️ No file extension found, defaulting to jpg");
             "jpg".to_string()
@@ -913,29 +844,19 @@ async fn upload_image(
     };
 
     // Create the GCS client using proper authentication
-    println!("Initializing GCS client...");
     let client_config = match ClientConfig::default().with_auth().await {
-        Ok(config) => {
-            println!("✅ GCS client configuration created successfully");
-            config
-        },
+        Ok(config) => config,
         Err(e) => {
             println!("❌ Error setting up GCS authentication: {}", e);
-            eprintln!("Error setting up GCS authentication: {}", e);
             return HttpResponse::InternalServerError().body(format!("Failed to initialize GCS client: {}", e));
         }
     };
 
     let client = GcsClient::new(client_config);
-    println!("✅ GCS client created successfully");
     
     // Get bucket name from env
-    println!("Getting bucket name from environment...");
     let bucket_name = match std::env::var("GCS_BUCKET_NAME") {
-        Ok(name) => {
-            println!("✅ Bucket name from env: {}", name);
-            name
-        },
+        Ok(name) => name,
         Err(_) => {
             println!("❌ GCS_BUCKET_NAME not set in environment");
             return HttpResponse::InternalServerError().body("GCS_BUCKET_NAME not set in environment");
@@ -944,10 +865,8 @@ async fn upload_image(
     
     // Generate a unique object name
     let object_name = format!("{}/{}.{}", image_type, Uuid::new_v4(), file_ext);
-    println!("Generated object name: {}", object_name);
-    
-    // Store the content type in a new variable to avoid ownership issues
-    println!("Determining final content type...");
+
+    // Determine the content type
     let content_type_str = match &content_type {
         Some(ct) => {
             println!("✅ Using content type from field: {}", ct);
@@ -971,53 +890,33 @@ async fn upload_image(
         bucket: bucket_name.clone(),
         ..Default::default()
     };
-    println!("✅ Upload request prepared with bucket: {}", bucket_name);
-
     // Media with object name and content type
     let media = Media {
         name: Cow::Owned(object_name.clone()),
         content_type: Cow::Owned(content_type_str.clone()),
         content_length: Some(image_bytes.len() as u64),
     };
-    println!("✅ Media created with name: {} and content type: {}", object_name, content_type_str);
-
-    // Upload type
     let upload_type = UploadType::Simple(media);
-    println!("✅ Upload type created");
-
-    // Then use the client to upload
-    println!("Starting GCS upload...");
     let upload_result = client
         .upload_object(&upload_request, image_bytes.clone(), &upload_type)
         .await;
-
-    // Debug result
     match &upload_result {
-        Ok(_) => {
-            println!("✅ GCS upload successful for {}", object_name);
-        },
+        Ok(_) => (),
         Err(e) => {
             println!("❌ Upload failed: {:?}", e);
-            eprintln!("Upload failed: {:?}", e);
             
-            // Try to extract more info from the error
             let error_string = format!("{:?}", e);
             if error_string.contains("status code: 403") {
                 println!("❌ This is a permissions error (403 Forbidden)");
-                eprintln!("- This is a permissions error (403 Forbidden)");
             } else if error_string.contains("status code: 404") {
                 println!("❌ This is a not found error (404 Not Found) - check bucket name");
-                eprintln!("- This is a not found error (404 Not Found) - check bucket name");
             }
             
             // Check bucket name case sensitivity
             println!("❌ Using bucket name: '{}' (check case sensitivity)", bucket_name);
-            eprintln!("- Using bucket name: '{}' (check case sensitivity)", bucket_name);
             println!("❌ Object path: '{}'", object_name);
-            eprintln!("- Object path: '{}'", object_name);
         }
     }
-    
     let image_url = match upload_result {
         Ok(_) => {
             // Generate a public URL for the uploaded image
@@ -1026,7 +925,6 @@ async fn upload_image(
                 bucket_name,
                 object_name
             );
-            println!("✅ Generated public URL: {}", url);
             url
         },
         Err(e) => {
@@ -1034,9 +932,6 @@ async fn upload_image(
             return HttpResponse::InternalServerError().body(format!("Failed to upload image to GCS: {}", e));
         }
     };
-    
-    // Store the image metadata in the database
-    println!("Storing image metadata in database...");
     let result = sqlx::query!(
         "INSERT INTO images (id, user_id, filename, content_type, image_type, image_url) 
          VALUES ($1, $2, $3, $4, $5, $6)
@@ -1050,11 +945,8 @@ async fn upload_image(
     )
     .fetch_one(&**pool)
     .await;
-    
     match result {
         Ok(_) => {
-            println!("✅ Image metadata stored successfully in database");
-            println!("=== IMAGE UPLOAD SUCCESS ===");
             HttpResponse::Ok().json(json!({
                 "message": "Image uploaded successfully",
                 "image_id": image_id,
