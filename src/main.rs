@@ -832,13 +832,12 @@ async fn upload_image(
     };
     
     // Get file extension for content type detection
-    println!("Determining file extension and content type...");
     let file_ext = match filename.as_ref().and_then(|name| {
         Path::new(name).extension().and_then(|ext| ext.to_str()).map(|s| s.to_lowercase())
     }) {
         Some(ext) => ext,
         None => {
-            println!("⚠️ No file extension found, defaulting to jpg");
+            eprintln!("⚠️ No file extension found, defaulting to jpg");
             "jpg".to_string()
         }
     };
@@ -885,7 +884,6 @@ async fn upload_image(
     };
 
     // Update the upload call to use the correct API
-    println!("Preparing GCS upload request...");
     let upload_request = UploadObjectRequest {
         bucket: bucket_name.clone(),
         ..Default::default()
@@ -925,10 +923,11 @@ async fn upload_image(
                 bucket_name,
                 object_name
             );
+            println!("Image uploaded to: {}", url);
             url
         },
         Err(e) => {
-            println!("❌ Failed to upload image to GCS: {}", e);
+            eprintln!("❌ Failed to upload image to GCS: {}", e);
             return HttpResponse::InternalServerError().body(format!("Failed to upload image to GCS: {}", e));
         }
     };
