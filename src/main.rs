@@ -835,6 +835,27 @@ async fn upload_image(
                     }
                     
                     println!("✅ File reading complete: {} chunks, {} bytes total", chunk_count, data.len());
+                    
+                    // Debug: Check if the data looks like a valid image
+                    if data.len() < 1024 {
+                        println!("⚠️ WARNING: Image data is very small ({} bytes) - this might be corrupted!", data.len());
+                    }
+                    
+                    // Debug: Log first 32 bytes to check for corruption
+                    if data.len() >= 32 {
+                        let first_bytes: Vec<String> = data[..32].iter().map(|b| format!("{:02x}", b)).collect();
+                        println!("🔍 First 32 bytes: {}", first_bytes.join(" "));
+                        
+                        // Check for JPEG magic bytes
+                        if data.len() >= 2 && data[0] == 0xFF && data[1] == 0xD8 {
+                            println!("✅ JPEG magic bytes detected (FF D8)");
+                        } else {
+                            println!("❌ JPEG magic bytes NOT found - file may be corrupted!");
+                        }
+                    } else {
+                        println!("❌ Image data too small to check magic bytes");
+                    }
+                    
                     image_data = Some(data);
                 } else {
                     println!("❌ No filename found in content disposition");
@@ -853,6 +874,21 @@ async fn upload_image(
     let image_bytes = match image_data {
         Some(data) => {
             println!("✅ Image data received: {} bytes", data.len());
+            
+            // Final validation before upload
+            if data.len() < 1024 {
+                println!("⚠️ WARNING: Image data is very small ({} bytes) before upload!", data.len());
+            }
+            
+            // Check JPEG magic bytes one more time
+            if data.len() >= 2 {
+                if data[0] == 0xFF && data[1] == 0xD8 {
+                    println!("✅ JPEG magic bytes confirmed before upload");
+                } else {
+                    println!("❌ JPEG magic bytes missing before upload - first bytes: {:02x} {:02x}", data[0], data[1]);
+                }
+            }
+            
             data
         },
         None => {
