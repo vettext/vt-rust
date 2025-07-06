@@ -1,49 +1,47 @@
-use serde_json::{json, Value};
 use uuid::Uuid;
 use chrono::{DateTime, Utc};
-use base64::engine::general_purpose;
-use base64::Engine as _;
 use reqwest::Client;
 use tokio;
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use std::env;
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
-use aes_gcm::aead::Aead;
 use dotenv;
 mod testing_utils;
-use testing_utils::{generate_test_token, TEST_VERIFYING_KEY};
+use testing_utils::generate_test_token;
 
-#[derive(FromRow, Debug, Serialize, Deserialize, Clone)]
-pub struct UserWithPet {
-    // User fields
-    pub id: Option<Uuid>,
-    pub phone_number: Option<String>,
-    pub public_key: Option<String>,
-    pub scope: Option<String>,
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UserProfile {
+    pub id: Uuid,
+    pub phone_number: String,
+    pub public_key: String,
+    pub scope: String,
     pub first_name: Option<String>,
     pub last_name: Option<String>,
     pub email: Option<String>,
     pub address: Option<String>,
     pub profile_image_url: Option<String>,
-    pub verified: Option<bool>,
+    pub verified: bool,
+    #[serde(with = "chrono::serde::ts_milliseconds")]
+    pub created_at: DateTime<Utc>,
+    #[serde(with = "chrono::serde::ts_milliseconds")]
+    pub updated_at: DateTime<Utc>,
+    pub pets: Vec<Pet>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Pet {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub name: String,
+    pub breed: String,
+    pub sex: String,
     #[serde(with = "chrono::serde::ts_milliseconds_option")]
-    pub created_at: Option<DateTime<Utc>>,
-    #[serde(with = "chrono::serde::ts_milliseconds_option")]
-    pub updated_at: Option<DateTime<Utc>>,
-    // Pet fields
-    pub pet_id: Option<Uuid>,
-    pub pet_user_id: Option<Uuid>,
-    pub pet_name: Option<String>,
-    pub pet_breed: Option<String>,
-    pub pet_sex: Option<String>,
-    #[serde(with = "chrono::serde::ts_milliseconds_option")]
-    pub pet_birthday: Option<DateTime<Utc>>,
+    pub birthday: Option<DateTime<Utc>>,
     pub pet_image_url: Option<String>,
-    pub pet_color: Option<String>,
-    pub pet_species: Option<String>,
-    pub pet_spayed_neutered: Option<bool>,
-    pub pet_weight: Option<i32>,
+    pub color: Option<String>,
+    pub species: Option<String>,
+    pub spayed_neutered: Option<bool>,
+    pub weight: Option<i32>,
 }
 
 /// Helper function to initialize the test database connection.
@@ -134,8 +132,8 @@ async fn test_get_profiles_endpoint_as_provider() -> Result<(), Box<dyn std::err
     let pool = setup_test_db().await;
 
     // Insert a test provider and a test client.
-    let provider_id = insert_test_user(&pool, "0001231986", "provider").await;
-    let client_id = insert_test_user(&pool, "0001231987", "client").await;
+    let provider_id = insert_test_user(&pool, "0001231990", "provider").await;
+    let client_id = insert_test_user(&pool, "0001231991", "client").await;
 
     // Add a pet to the client
     let _pet_id = insert_test_pet(&pool, client_id).await;
@@ -162,21 +160,23 @@ async fn test_get_profiles_endpoint_as_provider() -> Result<(), Box<dyn std::err
     assert!(response.status().is_success(), "Expected 200 OK, got {}", response.status());
 
     // Parse the response body as JSON.
-    let profiles: Vec<UserWithPet> = response.json().await?;
+    let profiles: Vec<UserProfile> = response.json().await?;
 
-    // Assert that we get results (may be multiple rows due to LEFT JOIN with pets)
+    // Assert that we get results (one user per user, with pets grouped)
     assert!(!profiles.is_empty(), "Expected profiles, got empty response");
 
     // Check that we have data for both users
-    let provider_profiles: Vec<_> = profiles.iter().filter(|p| p.id == Some(provider_id)).collect();
-    let client_profiles: Vec<_> = profiles.iter().filter(|p| p.id == Some(client_id)).collect();
+    let provider_profile = profiles.iter().find(|p| p.id == provider_id);
+    let client_profile = profiles.iter().find(|p| p.id == client_id);
 
-    assert!(!provider_profiles.is_empty(), "Provider profile not found in response");
-    assert!(!client_profiles.is_empty(), "Client profile not found in response");
+    assert!(provider_profile.is_some(), "Provider profile not found in response");
+    assert!(client_profile.is_some(), "Client profile not found in response");
 
     // Check that the client has pet data
-    let client_with_pet = client_profiles.iter().find(|p| p.pet_id.is_some());
-    assert!(client_with_pet.is_some(), "Client pet data not found in response");
+    let client_profile = client_profile.unwrap();
+    assert!(!client_profile.pets.is_empty(), "Client pet data not found in response");
+    assert_eq!(client_profile.pets.len(), 1, "Expected 1 pet for client");
+    assert_eq!(client_profile.pets[0].name, "Test Pet", "Pet name mismatch");
 
     // Cleanup test users.
     cleanup_test_users(&pool, &[provider_id, client_id]).await;
@@ -190,8 +190,8 @@ async fn test_get_profiles_endpoint_as_client() -> Result<(), Box<dyn std::error
     let pool = setup_test_db().await;
 
     // Insert a test provider and a test client.
-    let provider_id = insert_test_user(&pool, "0001231988", "provider").await;
-    let client_id = insert_test_user(&pool, "0001231989", "client").await;
+    let provider_id = insert_test_user(&pool, "0001231992", "provider").await;
+    let client_id = insert_test_user(&pool, "0001231993", "client").await;
 
     // Add a pet to the client
     let _pet_id = insert_test_pet(&pool, client_id).await;
@@ -218,21 +218,23 @@ async fn test_get_profiles_endpoint_as_client() -> Result<(), Box<dyn std::error
     assert!(response.status().is_success(), "Expected 200 OK, got {}", response.status());
 
     // Parse the response body as JSON.
-    let profiles: Vec<UserWithPet> = response.json().await?;
+    let profiles: Vec<UserProfile> = response.json().await?;
 
-    // Assert that we get results (may be multiple rows due to LEFT JOIN with pets)
+    // Assert that we get results (one user per user, with pets grouped)
     assert!(!profiles.is_empty(), "Expected profiles, got empty response");
 
     // Check that we have data for both users
-    let provider_profiles: Vec<_> = profiles.iter().filter(|p| p.id == Some(provider_id)).collect();
-    let client_profiles: Vec<_> = profiles.iter().filter(|p| p.id == Some(client_id)).collect();
+    let provider_profile = profiles.iter().find(|p| p.id == provider_id);
+    let client_profile = profiles.iter().find(|p| p.id == client_id);
 
-    assert!(!provider_profiles.is_empty(), "Provider profile not found in response");
-    assert!(!client_profiles.is_empty(), "Client profile not found in response");
+    assert!(provider_profile.is_some(), "Provider profile not found in response");
+    assert!(client_profile.is_some(), "Client profile not found in response");
 
     // Check that the client has pet data
-    let client_with_pet = client_profiles.iter().find(|p| p.pet_id.is_some());
-    assert!(client_with_pet.is_some(), "Client pet data not found in response");
+    let client_profile = client_profile.unwrap();
+    assert!(!client_profile.pets.is_empty(), "Client pet data not found in response");
+    assert_eq!(client_profile.pets.len(), 1, "Expected 1 pet for client");
+    assert_eq!(client_profile.pets[0].name, "Test Pet", "Pet name mismatch");
 
     // Cleanup test users.
     cleanup_test_users(&pool, &[provider_id, client_id]).await;

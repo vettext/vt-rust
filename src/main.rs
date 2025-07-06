@@ -7,6 +7,7 @@ use uuid::Uuid;
 use actix_multipart::Multipart;
 use futures::{StreamExt, TryStreamExt};
 use std::path::Path;
+use std::collections::HashMap;
 use google_cloud_storage::client::{Client as GcsClient, ClientConfig};
 use sqlx::FromRow;
 use serde::Serialize;
@@ -63,6 +64,8 @@ struct UserWithPet {
     pet_spayed_neutered: Option<bool>,
     pet_weight: Option<i32>,
 }
+
+
 
 #[post("/register")]
 async fn register(
@@ -501,7 +504,53 @@ async fn get_profiles(
     };
 
     match rows {
-        Ok(rows) => HttpResponse::Ok().json(rows),
+        Ok(rows) => {
+            // Group rows by user and create UserProfile objects
+            let mut user_profiles: HashMap<Uuid, crate::models::UserProfile> = HashMap::new();
+            
+            for row in rows {
+                let user_id = row.id.unwrap();
+                
+                // Get or create user profile
+                let user_profile = user_profiles.entry(user_id).or_insert_with(|| crate::models::UserProfile {
+                    id: user_id,
+                    phone_number: row.phone_number.unwrap(),
+                    public_key: row.public_key.unwrap(),
+                    scope: row.scope.unwrap(),
+                    first_name: row.first_name,
+                    last_name: row.last_name,
+                    email: row.email,
+                    address: row.address,
+                    profile_image_url: row.profile_image_url,
+                    verified: row.verified.unwrap(),
+                    created_at: row.created_at.unwrap(),
+                    updated_at: row.updated_at.unwrap(),
+                    pets: Vec::new(),
+                });
+                
+                // Add pet if it exists
+                if let Some(pet_id) = row.pet_id {
+                    let pet = crate::models::Pet {
+                        id: pet_id,
+                        user_id: row.pet_user_id.unwrap(),
+                        name: row.pet_name.unwrap(),
+                        breed: row.pet_breed.unwrap(),
+                        sex: row.pet_sex.unwrap(),
+                        birthday: row.pet_birthday,
+                        pet_image_url: row.pet_image_url,
+                        color: row.pet_color,
+                        species: row.pet_species,
+                        spayed_neutered: row.pet_spayed_neutered,
+                        weight: row.pet_weight,
+                    };
+                    user_profile.pets.push(pet);
+                }
+            }
+            
+            // Convert HashMap values to Vec and return
+            let profiles: Vec<crate::models::UserProfile> = user_profiles.into_values().collect();
+            HttpResponse::Ok().json(profiles)
+        },
         Err(e) => HttpResponse::InternalServerError().body(format!("Database error: {}", e)),
     }
 }

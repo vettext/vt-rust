@@ -145,6 +145,8 @@ pub struct Message {
     pub content: String,
     #[serde(with = "chrono::serde::ts_milliseconds")]
     pub timestamp: DateTime<Utc>,
+    #[serde(with = "chrono::serde::ts_milliseconds")]
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -228,4 +230,23 @@ pub struct UpdatePetData {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DeletePetData {
     pub id: Uuid,  // Required to identify which pet to delete
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UserProfile {
+    pub id: Uuid,
+    pub phone_number: String,
+    pub public_key: String,
+    pub scope: String,
+    pub first_name: Option<String>,
+    pub last_name: Option<String>,
+    pub email: Option<String>,
+    pub address: Option<String>,
+    pub profile_image_url: Option<String>,
+    pub verified: bool,
+    #[serde(with = "chrono::serde::ts_milliseconds")]
+    pub created_at: DateTime<Utc>,
+    #[serde(with = "chrono::serde::ts_milliseconds")]
+    pub updated_at: DateTime<Utc>,
+    pub pets: Vec<Pet>,
 }

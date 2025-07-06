@@ -75,7 +75,7 @@ impl ConversationService {
             r#"
             INSERT INTO messages (conversation_id, sender_id, content, timestamp)
             VALUES ($1, $2, $3, $4)
-            RETURNING id, conversation_id, sender_id, content, timestamp
+            RETURNING id, conversation_id, sender_id, content, timestamp, updated_at
             "#,
             conversation_id,
             sender_id,
@@ -125,7 +125,7 @@ impl ConversationService {
         // Get messages with pagination
         let messages = sqlx::query_as!(
             Message,
-            "SELECT id, conversation_id, sender_id, content, timestamp
+            "SELECT id, conversation_id, sender_id, content, timestamp, updated_at
              FROM messages 
              WHERE conversation_id = $1 
              ORDER BY timestamp DESC 

@@ -333,7 +333,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
                                     addr.do_send(BroadcastMessage(WsMessage {
                                         sender_id: Uuid::nil(),
                                         event: "conversations".to_string(),
-                                        params: serde_json::json!(sorted_conversations),
+                                        params: json!(sorted_conversations),
                                     }));
                                 };
                                 ctx.spawn(wrap_future(future));
@@ -392,7 +392,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
                                             addr.do_send(BroadcastMessage(WsMessage {
                                                 sender_id: Uuid::nil(),
                                                 event: "error".to_string(),
-                                                params: serde_json::json!({
+                                                params: json!({
                                                     "message": "You are not authorized to send messages in this conversation"
                                                 }),
                                             }));
@@ -436,9 +436,9 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
                                                 addr.do_send(BroadcastMessage(WsMessage {
                                                     sender_id: Uuid::nil(),
                                                     event: "error".to_string(),
-                                                    params: serde_json::json!({
-                                                        "message": format!("Error sending message: {:?}", e)
-                                                    }),
+                                                                                                    params: json!({
+                                                    "message": format!("Error sending message: {:?}", e)
+                                                }),
                                                 }));
                                             }
                                         }
@@ -470,9 +470,9 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
                                             addr.do_send(BroadcastMessage(WsMessage {
                                                 sender_id: Uuid::nil(),
                                                 event: "error".to_string(),
-                                                params: serde_json::json!({
-                                                    "message": "Only clients can create conversations"
-                                                }),
+                                                                                            params: json!({
+                                                "message": "Only clients can create conversations"
+                                            }),
                                             }));
                                             return;
                                         }
@@ -506,7 +506,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
                                                 addr.do_send(BroadcastMessage(WsMessage {
                                                     sender_id: Uuid::nil(),
                                                     event: "conversation_created".to_string(),
-                                                    params: serde_json::json!(conversation),
+                                                    params: json!(conversation),
                                                 }));
                                                 
                                                 // Notify all providers about the new conversation
@@ -516,7 +516,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
                                                             message: WsMessage {
                                                                 sender_id: Uuid::nil(),
                                                                 event: "new_conversation_invitation".to_string(),
-                                                                params: serde_json::json!(conversation.clone()),
+                                                                params: json!(conversation.clone()),
                                                             },
                                                             conversation_id: conversation.id,
                                                         });
@@ -528,9 +528,9 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
                                                 addr.do_send(BroadcastMessage(WsMessage {
                                                     sender_id: Uuid::nil(),
                                                     event: "error".to_string(),
-                                                    params: serde_json::json!({
-                                                        "message": format!("Error creating conversation: {:?}", e)
-                                                    }),
+                                                                                                    params: json!({
+                                                    "message": format!("Error creating conversation: {:?}", e)
+                                                }),
                                                 }));
                                             }
                                         }
@@ -594,9 +594,9 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
                                             addr.do_send(BroadcastMessage(WsMessage {
                                                 sender_id: Uuid::nil(),
                                                 event: "error".to_string(),
-                                                params: serde_json::json!({
-                                                    "message": "You are not authorized to access this conversation history"
-                                                }),
+                                                                                            params: json!({
+                                                "message": "You are not authorized to access this conversation history"
+                                            }),
                                             }));
                                             return;
                                         }
@@ -612,18 +612,14 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
                                             &db_pool, conversation_id, page, limit
                                         ).await {
                                             Ok((messages, total_count, has_more)) => {
-                                                let history_response = json!({
-                                                    "event": "conversation_history_response",
-                                                    "params": {
-                                                        "messages": messages,
-                                                        "total_count": total_count,
-                                                        "has_more": has_more
-                                                    }
-                                                });
                                                 addr.do_send(BroadcastMessage(WsMessage {
                                                     sender_id: Uuid::nil(),
                                                     event: "conversation_history_response".to_string(),
-                                                    params: history_response,
+                                                    params: json!({
+                                                        "messages": messages,
+                                                        "total_count": total_count,
+                                                        "has_more": has_more
+                                                    }),
                                                 }));
                                             },
                                             Err(e) => {
@@ -631,7 +627,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
                                                 addr.do_send(BroadcastMessage(WsMessage {
                                                     sender_id: Uuid::nil(),
                                                     event: "error".to_string(),
-                                                    params: serde_json::json!({
+                                                    params: json!({
                                                         "message": format!("Error fetching conversation history: {:?}", e)
                                                     }),
                                                 }));
@@ -685,7 +681,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
                                                 message: WsMessage {
                                                     sender_id: Uuid::nil(), // System message
                                                     event: "user_joined".to_string(),
-                                                    params: serde_json::json!({
+                                                    params: json!({
                                                         "user_id": user_id,
                                                         "display_name": display_name,
                                                         "profile_image_url": user_profile.profile_image_url,
@@ -701,7 +697,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
                                         ctx.text(serde_json::to_string(&WsMessage {
                                             sender_id: Uuid::nil(),
                                             event: "subscribed".to_string(),
-                                            params: serde_json::json!({
+                                            params: json!({
                                                 "conversation_id": conversation_id,
                                                 "status": "success"
                                             }),
@@ -755,7 +751,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
                                                 message: WsMessage {
                                                     sender_id: Uuid::nil(), // System message
                                                     event: "user_left".to_string(),
-                                                    params: serde_json::json!({
+                                                    params: json!({
                                                         "user_id": user_id,
                                                         "display_name": display_name,
                                                         "profile_image_url": user_profile.profile_image_url,
@@ -772,7 +768,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
                                         ctx.text(serde_json::to_string(&WsMessage {
                                             sender_id: Uuid::nil(),
                                             event: "unsubscribed".to_string(),
-                                            params: serde_json::json!({
+                                            params: json!({
                                                 "conversation_id": conversation_id,
                                                 "status": "success"
                                             }),
