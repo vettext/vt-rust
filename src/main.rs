@@ -119,7 +119,7 @@ async fn register(
         }));
     }
 
-    // Send Twilio verification code
+    // Send Twilio verification code for real phone numbers
     match send_verification_request(&signed_data.data.phone_number).await {
         Ok(_) => HttpResponse::Ok().json(json!({
             "message": "Registration data received and verified. Verification code sent.",
@@ -171,7 +171,7 @@ async fn request_verification_code(
         }));
     }
 
-    // Send Twilio verification code
+    // Send Twilio verification code for real phone numbers
     match send_verification_request(&signed_data.data.phone_number).await {
         Ok(_) => HttpResponse::Ok().json(json!({
             "message": "Verification code sent",
@@ -223,7 +223,7 @@ async fn login(
             }));
         }
     } else {
-        // Check Twilio verification code
+        // Check Twilio verification code for real phone numbers
         let is_valid = match check_verification_code(&user_data.phone_number, &signed_data.data.verification_code).await {
             Ok(is_valid) => is_valid,
             Err(e) => return HttpResponse::InternalServerError().body(format!("Failed to check verification: {}", e)),

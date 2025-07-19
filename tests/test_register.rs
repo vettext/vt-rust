@@ -12,7 +12,8 @@ async fn test_register_endpoint() -> Result<(), Box<dyn std::error::Error>> {
     // Prepare the data payload
     let public_key = general_purpose::STANDARD.encode(TEST_VERIFYING_KEY.as_bytes());
     let timestamp = Utc::now().to_rfc3339();
-    let phone_number = "5038940267";
+    // let phone_number = "5038940267"; // Real phone number for testing
+    let phone_number = "0001231711"; // Test phone number
 
     // Create the data payload
     let data = json!({

@@ -73,8 +73,8 @@ impl ConversationService {
         let message = sqlx::query_as!(
             Message,
             r#"
-            INSERT INTO messages (conversation_id, sender_id, content, timestamp)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO messages (conversation_id, sender_id, content, timestamp, updated_at)
+            VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
             RETURNING id, conversation_id, sender_id, content, timestamp, updated_at
             "#,
             conversation_id,

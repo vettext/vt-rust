@@ -190,8 +190,8 @@ async fn test_get_profiles_endpoint_as_client() -> Result<(), Box<dyn std::error
     let pool = setup_test_db().await;
 
     // Insert a test provider and a test client.
-    let provider_id = insert_test_user(&pool, "0001231992", "provider").await;
-    let client_id = insert_test_user(&pool, "0001231993", "client").await;
+    let provider_id = insert_test_user(&pool, "0001231720", "provider").await;
+    let client_id = insert_test_user(&pool, "0001231721", "client").await;
 
     // Add a pet to the client
     let _pet_id = insert_test_pet(&pool, client_id).await;
