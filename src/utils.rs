@@ -169,6 +169,11 @@ pub fn verify_signature<T: Serialize>(
 
     // Serialize the data with sorted keys
     let stringified_data = to_canonical_json(&data_value);
+    
+    // Debug logging
+    println!("DEBUG: Canonical JSON: {}", stringified_data);
+    println!("DEBUG: Signature: {}", signature);
+    println!("DEBUG: Public key: {}", public_key);
 
     // Decode the base64 signature
     let signature_bytes = base64::engine::general_purpose::STANDARD.decode(signature)?;

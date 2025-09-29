@@ -32,9 +32,9 @@ pub struct Pet {
     pub birthday: Option<DateTime<Utc>>,
     pub pet_image_url: Option<String>,
     pub color: Option<String>,
-    pub species: Option<String>,
-    pub spayed_neutered: Option<bool>,
-    pub weight: Option<i32>
+    pub species: String,           // Now non-nullable with default 'dog'
+    pub spayed_neutered: bool,    // Now non-nullable with default false
+    pub weight: i32               // Now non-nullable with default 0
 }
 
 #[derive(FromRow, Debug)]

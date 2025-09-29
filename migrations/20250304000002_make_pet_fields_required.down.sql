@@ -1,0 +1,12 @@
+-- Revert pet fields to nullable
+ALTER TABLE pets 
+ALTER COLUMN species DROP NOT NULL,
+ALTER COLUMN species DROP DEFAULT;
+
+ALTER TABLE pets 
+ALTER COLUMN spayed_neutered DROP NOT NULL,
+ALTER COLUMN spayed_neutered DROP DEFAULT;
+
+ALTER TABLE pets 
+ALTER COLUMN weight DROP NOT NULL,
+ALTER COLUMN weight DROP DEFAULT;

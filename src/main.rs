@@ -541,9 +541,9 @@ async fn get_profiles(
                         birthday: row.pet_birthday,
                         pet_image_url: row.pet_image_url,
                         color: row.pet_color,
-                        species: row.pet_species,
-                        spayed_neutered: row.pet_spayed_neutered,
-                        weight: row.pet_weight,
+                        species: row.pet_species.unwrap_or_else(|| "dog".to_string()),
+                        spayed_neutered: row.pet_spayed_neutered.unwrap_or(false),
+                        weight: row.pet_weight.unwrap_or(0),
                     };
                     user_profile.pets.push(pet);
                 }
@@ -1126,8 +1126,9 @@ async fn update_pet(
         }
     } else {
         // CREATING: Validate required fields for new pet
-        if data.name.is_none() || data.breed.is_none() || data.sex.is_none() || data.birthday.is_none() {
-            return HttpResponse::BadRequest().body("Name, breed, sex, and birthday are required when creating a new pet");
+        if data.name.is_none() || data.breed.is_none() || data.sex.is_none() || data.birthday.is_none() || 
+           data.species.is_none() || data.spayed_neutered.is_none() || data.weight.is_none() {
+            return HttpResponse::BadRequest().body("Name, breed, sex, birthday, species, spayed_neutered, and weight are required when creating a new pet");
         }
 
         // Create a new pet
@@ -1139,15 +1140,15 @@ async fn update_pet(
             RETURNING id, user_id, name, breed, sex, birthday, pet_image_url, color, species, spayed_neutered, weight
             "#,
             user_id,
-            data.name,
-            data.breed,
-            data.sex,
-            data.birthday,
+            data.name.clone().unwrap(),
+            data.breed.clone().unwrap(),
+            data.sex.clone().unwrap(),
+            data.birthday.unwrap(),
             data.pet_image_url,
             data.color,
-            data.species,
-            data.spayed_neutered,
-            data.weight
+            data.species.clone().unwrap(),
+            data.spayed_neutered.unwrap(),
+            data.weight.unwrap()
         )
         .fetch_one(&**pool)
         .await {
