@@ -420,7 +420,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
                                                     "conversation_id": message.conversation_id,
                                                     "sender_id": message.sender_id,
                                                     "content": message.content,
-                                                    "timestamp": message.timestamp
+                                                    "timestamp": message.timestamp.timestamp_millis()
                                                 });
                                                 addr.do_send(BroadcastMessage(WsMessage {
                                                     sender_id: Uuid::nil(),
