@@ -15,6 +15,8 @@ use serde::Deserialize;
 use mime;
 use google_cloud_storage::http::objects::upload::{UploadObjectRequest, UploadType, Media};
 use std::borrow::Cow;
+use std::fs;
+use openssl::ssl::{SslAcceptor, SslFiletype, SslMethod};
 
 mod utils;
 mod models;
@@ -1199,6 +1201,7 @@ async fn delete_pet(
     }
 }
 
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     dotenv::dotenv().ok();
@@ -1212,6 +1215,33 @@ async fn main() -> std::io::Result<()> {
 
     // Start the WebSocket server actor
     let ws_server = websockets::WsServer::new().start();
+
+    // Get certificate and key file paths from environment variables
+    let cert_path = std::env::var("SSL_CERT_PATH").unwrap_or_else(|_| "cert.pem".to_string());
+    let key_path = std::env::var("SSL_KEY_PATH").unwrap_or_else(|_| "key.pem".to_string());
+
+    // Verify certificate files exist
+    if !fs::metadata(&cert_path).is_ok() {
+        eprintln!("SSL certificate file not found: {}", cert_path);
+        eprintln!("Set SSL_CERT_PATH environment variable or place cert.pem in the current directory");
+        std::process::exit(1);
+    }
+
+    if !fs::metadata(&key_path).is_ok() {
+        eprintln!("SSL private key file not found: {}", key_path);
+        eprintln!("Set SSL_KEY_PATH environment variable or place key.pem in the current directory");
+        std::process::exit(1);
+    }
+
+    // Configure OpenSSL
+    let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls())
+        .expect("Failed to create SSL acceptor");
+    builder.set_private_key_file(&key_path, SslFiletype::PEM)
+        .expect("Failed to set private key file");
+    builder.set_certificate_chain_file(&cert_path)
+        .expect("Failed to set certificate chain file");
+
+    println!("Starting HTTPS server on port 443...");
 
     HttpServer::new(move || {
         App::new()
@@ -1231,8 +1261,7 @@ async fn main() -> std::io::Result<()> {
             .service(delete_pet)
             .service(websocket_route)
     })
-    // .bind(("127.0.0.1", 8080))?
-    .bind(("0.0.0.0", 8080))?
+    .bind_openssl(("0.0.0.0", 443), builder)?
     .run()
     .await
 }

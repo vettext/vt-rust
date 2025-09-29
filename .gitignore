@@ -3,3 +3,14 @@
 Cargo.lock
 .env
 temp_uploads/
+
+# SSL Certificates (never commit these!)
+*.pem
+*.crt
+*.key
+*.p12
+*.pfx
+cert.pem
+key.pem
+certificate.pem
+private-key.pem
