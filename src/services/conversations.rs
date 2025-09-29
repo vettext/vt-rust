@@ -109,8 +109,20 @@ impl ConversationService {
         page: i32, 
         limit: i32
     ) -> Result<(Vec<Message>, i32, bool), sqlx::Error> {
-        // Calculate offset
-        let offset = page * limit;
+        // Validate input parameters
+        if page < 1 {
+            return Err(sqlx::Error::Protocol("Invalid page number: must be >= 1".to_string()));
+        }
+        if limit < 1 || limit > 100 {
+            return Err(sqlx::Error::Protocol("Invalid limit: must be between 1 and 100".to_string()));
+        }
+        
+        // Calculate offset - FIX: Use (page - 1) * limit for 1-based pagination
+        let offset = (page - 1) * limit;
+        
+        // Debug logging
+        println!("Fetching conversation history: conversation_id={}, page={}, limit={}, offset={}", 
+                 conversation_id, page, limit, offset);
         
         // Get total count
         let total_count = sqlx::query!(
