@@ -6,7 +6,6 @@ use serde::{Serialize, Deserialize};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use aes_gcm::aead::Aead;
 use std::env;
-use std::collections::BTreeMap;
 use aes_gcm::KeyInit;
 use rand::{thread_rng, Rng};
 use uuid::Uuid;
@@ -14,6 +13,7 @@ use ed25519_dalek::{VerifyingKey, Signature};
 use serde_json::Value;
 use anyhow;
 use actix_web::HttpRequest;
+use std::collections::BTreeMap;
 
 pub async fn send_verification_request(phone_number: &str) -> Result<(), Box<dyn std::error::Error>> {
     let account_sid = std::env::var("TWILIO_ACCOUNT_SID")?;
@@ -192,19 +192,15 @@ pub fn verify_signature<T: Serialize>(
 
 pub fn to_canonical_json(value: &Value) -> String {
     match value {
-        Value::String(s) => {
-            s.clone()
-        }
         Value::Object(map) => {
             let mut btree_map = BTreeMap::new();
             for (k, v) in map {
-                btree_map.insert(k, to_canonical_json(v));
+                btree_map.insert(k.clone(), v.clone());
             }
-            let serialized = serde_json::to_string(&btree_map).unwrap();
-            serialized
+            serde_json::to_string(&btree_map).unwrap()
         }
         Value::Array(arr) => {
-            let serialized_arr: Vec<String> = arr.iter().map(|v| to_canonical_json(v)).collect();
+            let serialized_arr: Vec<Value> = arr.iter().cloned().collect();
             serde_json::to_string(&serialized_arr).unwrap()
         }
         _ => serde_json::to_string(value).unwrap(),
