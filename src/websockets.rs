@@ -416,14 +416,11 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
                                         match result {
                                             Ok(message) => {
                                                 let message_payload = json!({
-                                                    "event": "message_sent",
-                                                    "params": {
-                                                        "id": message.id,
-                                                        "conversation_id": message.conversation_id,
-                                                        "sender_id": message.sender_id,
-                                                        "content": message.content,
-                                                        "timestamp": message.timestamp
-                                                    }
+                                                    "id": message.id,
+                                                    "conversation_id": message.conversation_id,
+                                                    "sender_id": message.sender_id,
+                                                    "content": message.content,
+                                                    "timestamp": message.timestamp
                                                 });
                                                 addr.do_send(BroadcastMessage(WsMessage {
                                                     sender_id: Uuid::nil(),
